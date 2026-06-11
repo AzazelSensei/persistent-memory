@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %} · timeline{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Timeline</h1>
+  <div class="sub">{{ records | length }} records, newest first.</div>
+</div>
+{% if records %}
+<ul class="reclist">
+{% for r in records %}
+  <li class="recrow">
+    <div class="rec-main">
+      <div class="rec-meta">
+        <span>{{ r.date }}</span>
+        <span class="rec-id">{{ r.id }}</span>
+        <span class="chip {{ r.type }}">{{ r.type }}</span>
+        <span class="badge {{ r.status }}">{{ r.status }}</span>
+      </div>
+    </div>
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<div class="empty">No records yet.</div>
+{% endif %}
+{% endblock %}

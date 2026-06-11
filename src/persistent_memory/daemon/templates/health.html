@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %} · health{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Health / Lint</h1>
+  <div class="sub">Schema, broken links and supersession conflicts.</div>
+</div>
+
+<h2>Errors</h2>
+{% if report.errors %}
+<ul class="reclist">{% for e in report.errors %}<li class="recrow"><div class="rec-main"><span class="badge reverted-as-mistake">error</span> {{ e }}</div></li>{% endfor %}</ul>
+{% else %}<div class="empty">No errors. ✓</div>{% endif %}
+
+<h2>Conflicts</h2>
+{% if report.conflicts %}
+<ul class="reclist">{% for c in report.conflicts %}<li class="recrow"><div class="rec-main"><span class="badge superseded">conflict</span> {{ c }}</div></li>{% endfor %}</ul>
+{% else %}<div class="empty">No conflicts. ✓</div>{% endif %}
+{% endblock %}

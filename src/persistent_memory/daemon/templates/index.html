@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %} · overview{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Overview</h1>
+  <div class="sub">Memory brain — decisions and lessons in one place.</div>
+</div>
+
+<div class="stat-grid">
+  <a class="stat-card" href="/decisions">
+    <div class="label">Decisions</div>
+    <div class="value">{{ decisions_count }}</div>
+  </a>
+  <a class="stat-card" href="/lessons">
+    <div class="label">Lessons</div>
+    <div class="value">{{ lessons_count }}</div>
+  </a>
+  <a class="stat-card pending" href="/decisions">
+    <div class="label">Pending</div>
+    <div class="value">{{ candidates | length }}</div>
+  </a>
+  <a class="stat-card" href="/projects">
+    <div class="label">Projects</div>
+    <div class="value">{{ projects_count }}</div>
+  </a>
+  <a class="stat-card" href="/graph">
+    <div class="label">Graph</div>
+    <div class="value">{{ "✓" if has_graph else "✗" }}</div>
+  </a>
+</div>
+
+<h2>Pending candidates</h2>
+{% if candidates %}
+<ul class="reclist" id="queue">
+  {% for c in candidates %}
+  <li class="recrow" data-id="{{ c.id }}">
+    <div class="rec-main">
+      <div class="rec-title"><a href="/records/{{ c.id }}">{{ c.title or c.id }}</a></div>
+      <div class="rec-meta">
+        <span class="rec-id">{{ c.id }}</span>
+        <span class="chip {{ c.type }}">{{ c.type }}</span>
+        {% if c.project %}<span class="chip project">{{ c.project }}</span>{% endif %}
+        <span>{{ c.date }}</span>
+      </div>
+    </div>
+    <div class="rec-actions">
+      <button class="btn approve sm" type="button" data-act="accept" data-id="{{ c.id }}">✓ Approve</button>
+      <button class="btn reject sm" type="button" data-act="reject" data-id="{{ c.id }}">✗ Reject</button>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty">No pending candidates. All clean. ✨</div>
+{% endif %}
+
+<h2>Recent activity</h2>
+{% if recent %}
+<ul class="reclist">
+  {% for r in recent %}
+  <li class="recrow">
+    <div class="rec-main">
+      <div class="rec-title"><a href="/records/{{ r.id }}">{{ r.title or r.id }}</a></div>
+      <div class="rec-meta">
+        <span class="rec-id">{{ r.id }}</span>
+        <span class="chip {{ r.type }}">{{ r.type }}</span>
+        <span class="badge {{ r.status }}">{{ r.status }}</span>
+        <span>{{ r.date }}</span>
+      </div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty">No records yet.</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PM_TOKEN = "{{ pm_token }}";
+  async function act(id, action) {
+    const res = await fetch(`/api/records/${id}/${action}`, {
+      method: 'POST', headers: { 'X-PM-Token': PM_TOKEN },
+    });
+    if (!res.ok) { pmToast('Error: ' + res.status); return; }
+    const row = document.querySelector(`#queue .recrow[data-id="${id}"]`);
+    if (row) row.remove();
+    pmToast(action === 'accept' ? 'Approved' : 'Rejected');
+    if (!document.querySelector('#queue .recrow')) setTimeout(() => window.location.reload(), 500);
+  }
+  const queue = document.getElementById('queue');
+  if (queue) queue.addEventListener('click', function (e) {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    act(btn.dataset.id, btn.dataset.act);
+  });
+</script>
+{% endblock %}

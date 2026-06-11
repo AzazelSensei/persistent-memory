@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %} · graph{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Unified graph</h1>
+  <div class="sub">Knowledge graph of decisions, lessons and their relations.</div>
+</div>
+{% if has_graph %}
+  <div class="card" style="overflow:hidden">
+    <iframe src="/static/graph/graph.html" style="width:100%;height:75vh;border:0;display:block"></iframe>
+  </div>
+{% else %}
+  <div class="empty">Graph not generated yet. Run consolidation (/api/consolidate?full=true).</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %} · {{ heading | lower }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ heading }}</h1>
+  <div class="sub">{{ records | length }} records</div>
+</div>
+
+<div class="toolbar">
+  <div class="tabs" id="statusTabs">
+    <button data-status="proposed" class="active">Pending</button>
+    <button data-status="accepted">Accepted</button>
+    <button data-status="all">All</button>
+  </div>
+  <select id="projectFilter" aria-label="Project">
+    <option value="">All projects</option>
+    {% for p in projects %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+  </select>
+  <input type="search" id="textFilter" placeholder="Search titles...">
+  <div class="spacer"></div>
+  <button class="btn approve" id="acceptAllBtn" type="button">Accept all</button>
+</div>
+
+<ul class="reclist" id="recList">
+{% for r in records %}
+  <li class="recrow" data-id="{{ r.id }}" data-status="{{ r.status }}"
+      data-project="{{ r.project | default('', true) }}"
+      data-title="{{ (r.title ~ ' ' ~ r.id) | lower }}">
+    <div class="rec-main">
+      <div class="rec-title"><a href="/records/{{ r.id }}">{{ r.title or r.id }}</a></div>
+      <div class="rec-meta">
+        <span class="rec-id">{{ r.id }}</span>
+        {% if r.project %}<span class="chip project">{{ r.project }}</span>{% endif %}
+        <span class="badge {{ r.status }}">{{ r.status }}</span>
+        <span>{{ r.date }}</span>
+        {% if r["superseded-by"] %}<span class="super-note">→ superseded by {{ r["superseded-by"] | join(", ") }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="rec-actions">
+      {% if r.status == "proposed" %}
+      <button class="btn approve sm" type="button" data-act="accept" data-id="{{ r.id }}">✓ Approve</button>
+      <button class="btn reject sm" type="button" data-act="reject" data-id="{{ r.id }}">✗ Reject</button>
+      {% endif %}
+    </div>
+  </li>
+{% endfor %}
+</ul>
+<div class="empty" id="emptyState" style="display:none">No records match this filter.</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PM_TOKEN = "{{ pm_token }}";
+  const LIST_TYPE = "{{ 'decision' if heading in ('Kararlar', 'Decisions') else 'lesson' }}";
+  let activeStatus = "proposed";
+
+  function applyFilters() {
+    const proj = document.getElementById('projectFilter').value;
+    const text = document.getElementById('textFilter').value.trim().toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('#recList .recrow').forEach(function (row) {
+      const okStatus = activeStatus === 'all' || row.dataset.status === activeStatus;
+      const okProj = !proj || row.dataset.project === proj;
+      const okText = !text || row.dataset.title.indexOf(text) !== -1;
+      const show = okStatus && okProj && okText;
+      row.classList.toggle('hide', !show);
+      if (show) visible++;
+    });
+    document.getElementById('emptyState').style.display = visible ? 'none' : 'block';
+    const hasPending = activeStatus !== 'accepted';
+    document.getElementById('acceptAllBtn').style.display = hasPending ? '' : 'none';
+  }
+
+  document.querySelectorAll('#statusTabs button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#statusTabs button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      activeStatus = b.dataset.status;
+      applyFilters();
+    });
+  });
+  document.getElementById('projectFilter').addEventListener('change', applyFilters);
+  document.getElementById('textFilter').addEventListener('input', applyFilters);
+
+  async function act(id, action) {
+    const res = await fetch(`/api/records/${id}/${action}`, {
+      method: 'POST', headers: { 'X-PM-Token': PM_TOKEN },
+    });
+    if (!res.ok) { pmToast('Error: ' + res.status); return; }
+    const row = document.querySelector(`.recrow[data-id="${id}"]`);
+    if (row) {
+      const newStatus = action === 'accept' ? 'accepted' : 'reverted-as-mistake';
+      row.dataset.status = newStatus;
+      const badge = row.querySelector('.badge');
+      if (badge) { badge.className = 'badge ' + newStatus; badge.textContent = newStatus; }
+      const actions = row.querySelector('.rec-actions');
+      if (actions) actions.innerHTML = '';
+    }
+    pmToast(action === 'accept' ? 'Approved' : 'Rejected');
+    applyFilters();
+  }
+
+  document.getElementById('recList').addEventListener('click', function (e) {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    act(btn.dataset.id, btn.dataset.act);
+  });
+
+  document.getElementById('acceptAllBtn').addEventListener('click', async function () {
+    const proj = document.getElementById('projectFilter').value;
+    const params = new URLSearchParams({ type: LIST_TYPE });
+    if (proj) params.set('project', proj);
+    if (!confirm('All pending records matching the filter will be accepted. Continue?')) return;
+    const res = await fetch('/api/records/accept-all?' + params.toString(), {
+      method: 'POST', headers: { 'X-PM-Token': PM_TOKEN },
+    });
+    if (!res.ok) { pmToast('Error: ' + res.status); return; }
+    const data = await res.json();
+    pmToast(data.accepted + ' records accepted');
+    setTimeout(() => window.location.reload(), 700);
+  });
+
+  applyFilters();
+</script>
+{% endblock %}

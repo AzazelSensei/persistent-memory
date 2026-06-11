@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %} · projects{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Projects</h1>
+  <div class="sub">{{ projects | length }} projects (from transcripts).</div>
+</div>
+{% if not projects %}
+<div class="empty">No projects yet (no transcripts found).</div>
+{% endif %}
+<ul class="reclist">
+{% for p in projects %}
+<li class="recrow">
+  <div class="rec-main">
+    <div class="rec-title"><a href="/projects/{{ p.name | urlencode }}">{{ p.name }}</a></div>
+    <div class="rec-meta">
+      <span>{{ p.path }}</span>
+    </div>
+  </div>
+  <div class="rec-actions" style="gap:.5rem">
+    <span class="chip muted">transcripts {{ p.transcript_count }}</span>
+    <span class="chip decision">decisions {{ p.decisions_count }}</span>
+    <span class="chip lesson">lessons {{ p.lessons_count }}</span>
+  </div>
+</li>
+{% endfor %}
+</ul>
+{% endblock %}

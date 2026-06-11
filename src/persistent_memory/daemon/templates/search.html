@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %} · search{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Search</h1>
+  <div class="sub">Hybrid TR/EN search (BM25 + embedding).</div>
+</div>
+<form id="searchForm" class="toolbar" onsubmit="return doSearch(event)">
+  <input type="search" id="q" name="q" placeholder="search..." autocomplete="off" style="flex:1">
+  <button class="btn primary" type="submit">Search</button>
+</form>
+<ul class="reclist" id="results"></ul>
+<div class="empty" id="searchEmpty">Enter a query.</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  async function doSearch(e) {
+    e.preventDefault();
+    const q = document.getElementById("q").value;
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    const ul = document.getElementById("results");
+    const empty = document.getElementById("searchEmpty");
+    ul.innerHTML = "";
+    const rows = data.results || [];
+    empty.style.display = rows.length ? "none" : "block";
+    empty.textContent = rows.length ? "" : "No results.";
+    rows.forEach(r => {
+      const li = document.createElement("li");
+      li.className = "recrow";
+      const main = document.createElement("div");
+      main.className = "rec-main";
+      const title = document.createElement("div");
+      title.className = "rec-title";
+      const a = document.createElement("a");
+      a.href = `/records/${r.id}`;
+      a.textContent = r.title || r.id;
+      title.appendChild(a);
+      const meta = document.createElement("div");
+      meta.className = "rec-meta";
+      const idSpan = document.createElement("span");
+      idSpan.className = "rec-id"; idSpan.textContent = r.id;
+      meta.appendChild(idSpan);
+      if (r.project) {
+        const proj = document.createElement("span");
+        proj.className = "chip project"; proj.textContent = r.project;
+        meta.appendChild(proj);
+      }
+      const score = document.createElement("span");
+      score.textContent = `score ${(r.score ?? 0).toFixed(2)}`;
+      meta.appendChild(score);
+      main.appendChild(title); main.appendChild(meta);
+      li.appendChild(main);
+      ul.appendChild(li);
+    });
+    return false;
+  }
+</script>
+{% endblock %}

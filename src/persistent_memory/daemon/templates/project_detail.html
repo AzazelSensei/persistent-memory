@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %} · {{ detail.name }}{% endblock %}
+{% block content %}
+<div class="crumb"><a href="/projects">← Projects</a></div>
+<div class="page-head">
+  <h1>{{ detail.name }}</h1>
+  <div class="sub">{{ detail.decisions | length }} decisions · {{ detail.lessons | length }} lessons</div>
+</div>
+
+<h2>Decisions</h2>
+{% if detail.decisions %}
+<ul class="reclist">
+  {% for r in detail.decisions %}
+  <li class="recrow">
+    <div class="rec-main">
+      <div class="rec-title"><a href="/records/{{ r.id }}">{{ r.id }}</a></div>
+      <div class="rec-meta"><span class="badge {{ r.status }}">{{ r.status }}</span><span>{{ r.date }}</span></div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<div class="empty">No decisions.</div>{% endif %}
+
+<h2>Lessons</h2>
+{% if detail.lessons %}
+<ul class="reclist">
+  {% for r in detail.lessons %}
+  <li class="recrow">
+    <div class="rec-main">
+      <div class="rec-title"><a href="/records/{{ r.id }}">{{ r.id }}</a></div>
+      <div class="rec-meta"><span class="badge {{ r.status }}">{{ r.status }}</span><span>{{ r.date }}</span></div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<div class="empty">No lessons.</div>{% endif %}
+
+<h2>Recent messages</h2>
+{% if not detail.recent_messages %}
+<div class="empty">No messages.</div>
+{% endif %}
+{% for msg in detail.recent_messages %}
+<div class="card pad" style="margin-bottom:.55rem">
+  <div class="rec-meta" style="margin:0 0 .35rem">
+    <strong>{{ msg.role }}</strong>
+    <span>{{ msg.timestamp }}</span>
+    {% if msg.is_tool %}<span class="chip muted">tool</span>{% endif %}
+  </div>
+  {% if msg.text %}<div class="body" style="white-space:pre-wrap">{{ msg.text }}</div>{% endif %}
+</div>
+{% endfor %}
+{% endblock %}

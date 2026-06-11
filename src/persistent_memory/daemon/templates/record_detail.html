@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %} · {{ detail.id }}{% endblock %}
+{% block content %}
+<style>
+  .passage { border: 1px solid var(--border); border-radius: var(--radius); padding: .7rem .85rem; margin-bottom: .7rem; background: var(--bg); }
+  .passage-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .4rem; }
+  .passage-head .rec-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; color: var(--accent-strong); }
+  .passage-meta { color: var(--faint); font-size: .78rem; }
+  .passage-text { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: .88rem; color: var(--text); line-height: 1.5; }
+  .muted-note { color: var(--muted); font-size: .9rem; }
+</style>
+<div class="crumb">
+  <a href="/{{ 'decisions' if detail.type == 'decision' else 'lessons' }}">← {{ 'Decisions' if detail.type == 'decision' else 'Lessons' }}</a>
+</div>
+
+<div class="page-head">
+  <div class="headrow">
+    <span class="chip {{ detail.type }}">{{ detail.type }}</span>
+    <span class="badge {{ detail.status }}">{{ detail.status }}</span>
+    {% if detail.project %}<span class="chip project">{{ detail.project }}</span>{% endif %}
+  </div>
+  <h1>{{ detail.title }}</h1>
+  <div class="sub"><span class="rec-id">{{ detail.id }}</span> · {{ detail.date }}</div>
+</div>
+
+{% if detail.status == "proposed" %}
+<div class="actionbar">
+  <button class="btn approve" id="acceptBtn" type="button">✓ Approve</button>
+  <button class="btn reject" id="rejectBtn" type="button">✗ Reject</button>
+</div>
+{% endif %}
+
+<div class="detail-grid">
+  <div>
+    {% if detail.sections %}
+      {% for s in detail.sections %}
+      <div class="section card pad">
+        <h3>{{ s.heading }}</h3>
+        <div class="body">{{ s.text }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">No sections found in this record body.</div>
+    {% endif %}
+
+    <div class="card pad section">
+      <h3>Source / Transcript History</h3>
+      {% if detail.source_passages %}
+        {% for p in detail.source_passages %}
+        <div class="passage">
+          <div class="passage-head">
+            <span class="rec-id">{{ p.session_id[:8] }}</span>
+            <span class="passage-meta">{{ p.timestamp or "—" }} · score {{ "%.3f"|format(p.score) }}</span>
+          </div>
+          <pre class="passage-text">{{ p.text }}</pre>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="muted-note">Source index not built yet — run /api/consolidate or build the transcript index.</div>
+      {% endif %}
+    </div>
+
+    {% if detail.supersedes or detail.superseded_by %}
+    <div class="card pad section">
+      <h3>Supersession chain</h3>
+      {% if detail.supersedes %}
+      <p><strong>Supersedes:</strong>
+        {% for ref in detail.supersedes %}
+          <a href="/records/{{ ref.id }}">{{ ref.title }} ({{ ref.id }})</a>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </p>
+      {% endif %}
+      {% if detail.superseded_by %}
+      <p><strong>Superseded by:</strong>
+        {% for ref in detail.superseded_by %}
+          <a href="/records/{{ ref.id }}">{{ ref.title }} ({{ ref.id }})</a>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <aside class="card pad meta-panel">
+    <div class="row"><span class="k">Type</span><span class="v">{{ detail.type }}</span></div>
+    <div class="row"><span class="k">Status</span><span class="v">{{ detail.status }}</span></div>
+    <div class="row"><span class="k">Project</span><span class="v">{{ detail.project or "—" }}</span></div>
+    <div class="row"><span class="k">Date</span><span class="v">{{ detail.date }}</span></div>
+    <div class="row"><span class="k">Salience</span><span class="v">{{ detail.salience }}</span></div>
+    <div class="row"><span class="k">ID</span><span class="v rec-id">{{ detail.id }}</span></div>
+    {% if detail.tags %}
+    <div class="row"><span class="k">Tags</span><span class="v">{{ detail.tags | join(", ") }}</span></div>
+    {% endif %}
+    {% if detail.provenance %}
+    <div class="row"><span class="k">Session</span><span class="v">{{ detail.provenance.session }}</span></div>
+    <div class="row"><span class="k">Agent</span><span class="v">{{ detail.provenance.agent }}</span></div>
+    <div class="row"><span class="k">cwd</span><span class="v">{{ detail.provenance.cwd }}</span></div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PM_TOKEN = "{{ pm_token }}";
+  const REC_ID = "{{ detail.id }}";
+  async function decide(action) {
+    const res = await fetch(`/api/records/${REC_ID}/${action}`, {
+      method: 'POST', headers: { 'X-PM-Token': PM_TOKEN },
+    });
+    if (!res.ok) { pmToast('Error: ' + res.status); return; }
+    pmToast(action === 'accept' ? 'Approved' : 'Rejected');
+    setTimeout(() => window.location.reload(), 600);
+  }
+  const acc = document.getElementById('acceptBtn');
+  const rej = document.getElementById('rejectBtn');
+  if (acc) acc.addEventListener('click', () => decide('accept'));
+  if (rej) rej.addEventListener('click', () => decide('reject'));
+</script>
+{% endblock %}
