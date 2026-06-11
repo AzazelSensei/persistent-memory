@@ -79,10 +79,10 @@ Always use `./.venv/bin/python` — the system python may not have the dependenc
 
 1. A hook posts to `/api/extract` with the transcript path and project.
 2. `prepare_extraction_input` validates the path against allow-listed roots, slices messages past the watermark, and writes a slice file.
-3. A detached headless `claude -p` process reads the slice and writes new records under `docs/decisions/` / `docs/lessons/` (and nothing else — enforced by the prompt's security preamble).
+3. A detached source-specific extraction process reads the slice and writes new records under `docs/decisions/` / `docs/lessons/` (and nothing else — enforced by the prompt's security preamble). Claude/manual transcripts use `claude -p --model claude-sonnet-4-6`; Codex transcripts use `codex exec --ignore-user-config -m gpt-5.3-codex-spark -c model_reasoning_effort="low"`. `PM_CODEX_BIN` can pin the Codex CLI; otherwise the macOS Codex.app binary is preferred over PATH when present.
 4. The file watcher notices new records and embeds them; a 900s timeout kills hung workers.
 
-Without the Claude CLI installed, capture degrades gracefully: search/recall/MCP/HTTP keep working.
+Without the matching CLI installed, capture degrades gracefully: search/recall/MCP/HTTP keep working.
 
 ## Quality bar for contributions
 

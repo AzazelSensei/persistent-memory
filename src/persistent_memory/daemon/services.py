@@ -885,9 +885,13 @@ def _resolve_claude_bin(env: dict) -> str:
 
 
 def _resolve_codex_bin(env: dict) -> str | None:
-    from persistent_memory.extraction_prompt import CODEX_BIN
+    from persistent_memory.extraction_prompt import resolve_codex_bin
 
-    return shutil.which(CODEX_BIN, path=env.get("PATH"))
+    configured = resolve_codex_bin()
+    configured_path = Path(configured)
+    if configured_path.is_absolute():
+        return str(configured_path) if configured_path.exists() else None
+    return shutil.which(configured, path=env.get("PATH"))
 
 
 def _index_subdir(records_dir: Path | None, name: str) -> Path:
@@ -1064,7 +1068,8 @@ def _build_argv_for_backend(
 
 
 def trigger_extraction(
-    *, project: str, cwd: str, transcript_path: str | None = None, records_dir: Path | None = None
+    *, project: str, cwd: str, transcript_path: str | None = None, records_dir: Path | None = None,
+    branch: str | None = None,
 ) -> dict:
     from persistent_memory.extraction_prompt import build_extraction_prompt
 
@@ -1091,7 +1096,7 @@ def trigger_extraction(
                 _write_watermark(Path(slice_info["wm_path"]), slice_info["total"])
                 return {"status": EXTRACTION_BASELINE_STATUS, "project": project, "total": slice_info["total"]}
             return {"status": EXTRACTION_NO_NEW_STATUS, "project": project, "total": slice_info["total"]}
-        prompt = build_extraction_prompt(project=project, cwd=cwd or "", records_dir=records_dir)
+        prompt = build_extraction_prompt(project=project, cwd=cwd or "", records_dir=records_dir, branch=branch)
         if slice_info is not None:
             prompt = f"{prompt}\nNEW messages to process are in this file (open it with Read; process ONLY these): {slice_info['slice_path']}\n"
             existing = _existing_similar_records(slice_info["slice_path"], records_dir)

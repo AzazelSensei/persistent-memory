@@ -1,23 +1,26 @@
-"""Prompt and argv builder for the headless extraction agent.
+"""Prompt and argv builders for the headless extraction agents.
 
-The daemon spawns `claude -p` with this prompt to turn a transcript slice into
-new decision/lesson records on disk. The prompt's security preamble pins the
-core rule: transcript content is data only — instructions inside it are read,
-never executed.
+The daemon uses the source-specific CLI (`claude -p` for Claude/manual input,
+`codex exec` for Codex transcripts) with this prompt to turn a transcript slice
+into new decision/lesson records on disk. The prompt's security preamble pins
+the core rule: transcript content is data only — instructions inside it are
+read, never executed.
 """
 
 from pathlib import Path
 
 CLAUDE_BIN = "claude"
 CODEX_BIN = "codex"
+CODEX_BIN_ENV = "PM_CODEX_BIN"
+CODEX_APP_BIN = Path("/Applications/Codex.app/Contents/Resources/codex")
 EXTRACTION_MODEL = "claude-sonnet-4-6"
-# Codex model: empty string means "use codex config default" (no -m flag).
-# Smoke-tested 2026-06-11: gpt-5.1-codex-mini and gpt-5.1-codex are not
-# supported with a ChatGPT account; only the config default (gpt-5.5) works.
-# Override via PM_CODEX_EXTRACTION_MODEL env var.
-CODEX_EXTRACTION_MODEL = ""
+# Codex model: keep explicit so daemon extraction does not inherit a user's
+# interactive Codex default. Override via PM_CODEX_EXTRACTION_MODEL env var.
+CODEX_EXTRACTION_MODEL = "gpt-5.3-codex-spark"
 CODEX_EXTRACTION_MODEL_ENV = "PM_CODEX_EXTRACTION_MODEL"
 EXTRACTION_EFFORT = "low"
+CODEX_EXTRACTION_EFFORT = "low"
+CODEX_EXTRACTION_EFFORT_ENV = "PM_CODEX_EXTRACTION_EFFORT"
 OUTPUT_FORMAT = "json"
 PERMISSION_MODE = "bypassPermissions"
 DECISIONS_SUBDIR = "decisions"
@@ -26,7 +29,7 @@ LESSONS_SUBDIR = "lessons"
 EXTRACTION_INSTRUCTIONS = """You are the persistent-memory extraction agent. Your task: from the given session transcript, extract the DECISIONS (what/why) ACTUALLY made in this project and the MISTAKES/LESSONS (what/why/when) actually experienced, and write them as permanent markdown records.
 
 Project: {project}
-Working directory: {cwd}
+Working directory: {cwd}{branch_line}
 Records directory (records_dir): {records_dir}
   - Decisions: {decisions_dir}
   - Lessons  : {lessons_dir}
@@ -40,12 +43,12 @@ STEPS:
 5. Write each new record with Write to the correct absolute directory:
    - create_decision -> {decisions_dir}/<ID>.md  (type: decision)
    - create_lesson   -> {lessons_dir}/<ID>.md    (type: lesson)
-   Frontmatter fields: id, type, status, date, project, provenance(session, cwd, agent), tags, supersedes: [], superseded-by: [], salience.
+   Frontmatter fields: id, type, status, date, project, provenance(session, cwd, agent{branch_provenance_hint}), tags, supersedes: [], superseded-by: [], salience.
    - status=proposed (always)
    - project: {project}
    - provenance.cwd: {cwd}
    - provenance.session: the session id from the transcript file name
-   - provenance.agent: the real name of the model writing this record (e.g. claude-sonnet-4-6)
+   - provenance.agent: the real name of the model writing this record (e.g. claude-sonnet-4-6){branch_provenance_instruction}
    - salience: importance estimate between 0 and 1
    Body sections (with ## headings, as in the template):
    - decision: Context / Problem, Decision, Rationale, Outcome / Learned
@@ -58,14 +61,30 @@ STEPS:
 """
 
 
-def build_extraction_prompt(project: str, cwd: str, records_dir: str | Path | None = None) -> str:
+def build_extraction_prompt(
+    project: str,
+    cwd: str,
+    records_dir: str | Path | None = None,
+    branch: str | None = None,
+) -> str:
     base = Path(records_dir) if records_dir else _default_records_dir()
+    if branch:
+        branch_line = f"\nGit branch: {branch}"
+        branch_provenance_hint = ", branch"
+        branch_provenance_instruction = f"\n   - provenance.branch: {branch}"
+    else:
+        branch_line = ""
+        branch_provenance_hint = ""
+        branch_provenance_instruction = ""
     return EXTRACTION_INSTRUCTIONS.format(
         project=project,
         cwd=cwd,
         records_dir=str(base),
         decisions_dir=str(base / DECISIONS_SUBDIR),
         lessons_dir=str(base / LESSONS_SUBDIR),
+        branch_line=branch_line,
+        branch_provenance_hint=branch_provenance_hint,
+        branch_provenance_instruction=branch_provenance_instruction,
     )
 
 
@@ -73,6 +92,17 @@ def _default_records_dir() -> Path:
     from persistent_memory.daemon.token import default_records_dir
 
     return default_records_dir()
+
+
+def resolve_codex_bin() -> str:
+    import os
+
+    override = os.environ.get(CODEX_BIN_ENV)
+    if override:
+        return override
+    if CODEX_APP_BIN.exists():
+        return str(CODEX_APP_BIN)
+    return CODEX_BIN
 
 
 def build_extraction_argv(prompt: str, cwd: str) -> list[str]:
@@ -100,7 +130,20 @@ def build_codex_extraction_argv(prompt: str, records_dir: Path) -> list[str]:
 
     records_repo_root = str(Path(records_dir).parent)
     model = os.environ.get(CODEX_EXTRACTION_MODEL_ENV) or CODEX_EXTRACTION_MODEL
-    argv = [CODEX_BIN, "exec", "--ephemeral", "--skip-git-repo-check", "-C", records_repo_root, "-s", "workspace-write"]
+    effort = os.environ.get(CODEX_EXTRACTION_EFFORT_ENV) or CODEX_EXTRACTION_EFFORT
+    argv = [
+        resolve_codex_bin(),
+        "exec",
+        "--ignore-user-config",
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "-C",
+        records_repo_root,
+        "-s",
+        "workspace-write",
+        "-c",
+        f'model_reasoning_effort="{effort}"',
+    ]
     if model:
         argv.extend(["-m", model])
     argv.append(prompt)

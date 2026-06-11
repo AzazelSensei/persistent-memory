@@ -32,7 +32,7 @@ You just code and talk. The system automatically extracts **decisions** (what wa
 | When you were wrong | Superseded, rationale preserved | Overwritten or duplicated | Stale chunks linger |
 | Can a human review it? | Yes — plain markdown, PR-able | Rarely | Not really |
 | Retrieval quality | Measured: eval gate with recall@k / MRR / nDCG floors in tests | Trust the vendor | You measure it (if you remember to) |
-| Cost & keys | Zero — local Ollama + your existing Claude subscription | Subscription + API keys | Embedding API bills |
+| Cost & keys | Zero — local Ollama + your existing agent CLI subscription/auth | Subscription + API keys | Embedding API bills |
 | Works with which agents | Claude Code, Codex CLI, any MCP client, plain `curl` | SDK-dependent | Whatever you wire |
 
 The honest trade-off: hosted platforms give you cross-device sync and multi-user dashboards out of the box. This project chooses the other side — your engineering decisions never leave your machine, and the memory itself is a reviewable artifact in your repo instead of an opaque database.
@@ -64,7 +64,7 @@ Hooks (signal)  →  Daemon (FastAPI, 127.0.0.1:37778)  →  Records (docs/decis
                         └── Recall injection  ←  Hybrid retrieval (BM25 + vector + recency + salience, RRF)
 ```
 
-- **Capture:** lightweight hooks fire every N messages and at session end; a background daemon slices the new part of the transcript and dispatches a headless `claude -p` extraction worker (uses your existing Claude subscription — no API key).
+- **Capture:** lightweight hooks fire every N messages and at session end; a background daemon slices the new part of the transcript and dispatches the source-specific extraction worker. Claude/manual transcripts use `claude -p`; Codex transcripts use `codex exec --ignore-user-config -m gpt-5.3-codex-spark` with low reasoning effort. `PM_CODEX_BIN` can pin the Codex CLI; otherwise the macOS Codex.app binary is preferred over PATH when present.
 - **Index:** records are embedded locally with Ollama `bge-m3` (1024-dim, strong Turkish/English bridge) into a numpy vector index with content-hash freshness.
 - **Recall:** at session start and on every prompt, the daemon retrieves the most relevant records (hybrid BM25 + vector ranking fused with RRF, weighted by recency and salience) and injects a compact memory block.
 - **Consolidate:** an optional graph pass clusters records into communities and proposes supersession candidates, reviewable in the dashboard.
@@ -85,7 +85,7 @@ Hooks (signal)  →  Daemon (FastAPI, 127.0.0.1:37778)  →  Records (docs/decis
 - macOS (the daemon runs under launchd; the code itself is portable, but the installer is macOS-specific)
 - Python ≥ 3.12
 - [Ollama](https://ollama.com) with the `bge-m3` model (the preflight doctor installs missing prerequisites)
-- Claude Code CLI for the extraction worker — without it, capture is disabled but search/recall keep working (degraded mode)
+- Claude Code CLI and/or Codex CLI for automatic extraction, depending on which agent produced the transcript. Without a matching CLI, capture degrades gracefully but search/recall keep working.
 
 ## Quickstart
 

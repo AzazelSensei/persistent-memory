@@ -95,20 +95,51 @@ class TestExtractionBackendFor:
 # ---------------------------------------------------------------------------
 
 class TestBuildCodexExtractionArgv:
-    def test_starts_with_codex_exec(self):
+    def test_starts_with_codex_exec(self, monkeypatch):
+        monkeypatch.setenv("PM_CODEX_BIN", "codex")
         argv = ep.build_codex_extraction_argv(prompt="HELLO", records_dir=Path("/tmp/rec"))
         assert argv[0] == "codex"
         assert argv[1] == "exec"
+
+    def test_codex_bin_env_override_wins(self, monkeypatch):
+        monkeypatch.setenv("PM_CODEX_BIN", "/custom/codex")
+        argv = ep.build_codex_extraction_argv(prompt="HELLO", records_dir=Path("/tmp/rec"))
+        assert argv[0] == "/custom/codex"
+
+    def test_prefers_codex_app_binary_when_present(self, monkeypatch, tmp_path):
+        app_bin = tmp_path / "Codex.app" / "Contents" / "Resources" / "codex"
+        app_bin.parent.mkdir(parents=True)
+        app_bin.write_text("", encoding="utf-8")
+        monkeypatch.delenv("PM_CODEX_BIN", raising=False)
+        monkeypatch.setattr(ep, "CODEX_APP_BIN", app_bin)
+        argv = ep.build_codex_extraction_argv(prompt="HELLO", records_dir=Path("/tmp/rec"))
+        assert argv[0] == str(app_bin)
 
     def test_has_ephemeral_and_skip_git(self):
         argv = ep.build_codex_extraction_argv(prompt="HELLO", records_dir=Path("/tmp/rec"))
         assert "--ephemeral" in argv
         assert "--skip-git-repo-check" in argv
 
+    def test_ignores_user_config(self):
+        argv = ep.build_codex_extraction_argv(prompt="HELLO", records_dir=Path("/tmp/rec"))
+        assert "--ignore-user-config" in argv
+
     def test_has_sandbox_workspace_write(self):
         argv = ep.build_codex_extraction_argv(prompt="HELLO", records_dir=Path("/tmp/rec"))
         idx = argv.index("-s")
         assert argv[idx + 1] == "workspace-write"
+
+    def test_sets_low_reasoning_effort(self, monkeypatch):
+        monkeypatch.delenv("PM_CODEX_EXTRACTION_EFFORT", raising=False)
+        argv = ep.build_codex_extraction_argv(prompt="HELLO", records_dir=Path("/tmp/rec"))
+        idx = argv.index("-c")
+        assert argv[idx + 1] == 'model_reasoning_effort="low"'
+
+    def test_effort_env_override_wins(self, monkeypatch):
+        monkeypatch.setenv("PM_CODEX_EXTRACTION_EFFORT", "medium")
+        argv = ep.build_codex_extraction_argv(prompt="HELLO", records_dir=Path("/tmp/rec"))
+        idx = argv.index("-c")
+        assert argv[idx + 1] == 'model_reasoning_effort="medium"'
 
     def test_has_cd_records_repo_root(self):
         argv = ep.build_codex_extraction_argv(prompt="HELLO", records_dir=Path("/home/user/repo/docs"))
@@ -121,7 +152,13 @@ class TestBuildCodexExtractionArgv:
         argv = ep.build_codex_extraction_argv(prompt="EXTRACT THIS", records_dir=Path("/tmp/rec"))
         assert argv[-1] == "EXTRACT THIS"
 
-    def test_no_model_flag_when_default_model_is_empty(self, monkeypatch):
+    def test_default_model_is_codex_spark(self, monkeypatch):
+        monkeypatch.delenv("PM_CODEX_EXTRACTION_MODEL", raising=False)
+        argv = ep.build_codex_extraction_argv(prompt="P", records_dir=Path("/tmp/rec"))
+        idx = argv.index("-m")
+        assert argv[idx + 1] == "gpt-5.3-codex-spark"
+
+    def test_no_model_flag_when_model_is_empty(self, monkeypatch):
         monkeypatch.delenv("PM_CODEX_EXTRACTION_MODEL", raising=False)
         monkeypatch.setattr(ep, "CODEX_EXTRACTION_MODEL", "")
         argv = ep.build_codex_extraction_argv(prompt="P", records_dir=Path("/tmp/rec"))
@@ -275,6 +312,8 @@ class TestCodexBinaryMissingFallback:
 
         services.reset_extraction_state()
         monkeypatch.delenv(services.TRANSCRIPT_ROOTS_ENV, raising=False)
+        monkeypatch.delenv("PM_CODEX_BIN", raising=False)
+        monkeypatch.setattr(ep, "CODEX_APP_BIN", tmp_path / "missing-codex-app-bin")
         # Make shutil.which return None for "codex"
         real_which = services.shutil.which
 
