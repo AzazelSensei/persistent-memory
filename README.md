@@ -103,6 +103,8 @@ curl 'http://127.0.0.1:37778/api/search?q=stale+cache+flash+sale'
 open http://127.0.0.1:37778        # dashboard
 ```
 
+> **Dashboard address:** always `http://127.0.0.1:37778` — the port is **fixed** (37778) and the daemon binds to localhost only. Opening `http://127.0.0.1` without the port will not load anything.
+
 Useful commands:
 
 ```bash
