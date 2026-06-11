@@ -1,0 +1,6 @@
+[
+  {"query": "redis cache stale prices flash sale", "expect_id": "D-0002", "project": "demo-project"},
+  {"query": "how do we invalidate the product cache", "expect_id": "D-0002", "project": "demo-project"},
+  {"query": "postgres migration locked table add column default", "expect_id": "L-0001", "project": "demo-project"},
+  {"query": "integration tests skipped but ci was green", "expect_id": "L-0002", "project": "demo-project"}
+]

@@ -1,0 +1,203 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {
+    "hyperedges": [
+      {
+        "id": "inmemory_cache_invalidation_lesson_flow",
+        "label": "In-Memory Cache Karar\u0131 \u2192 Invalidation Eksikli\u011fi \u2192 Prod Stale Read Dersi",
+        "nodes": [
+          "redis_yerine_inmemory_cache_d0001",
+          "cache_invalidation_prod_cokmesi_l0001",
+          "cache_invalidation_prod_cokmesi_stale_read",
+          "cache_invalidation_prod_cokmesi_genel_kural"
+        ],
+        "relation": "participate_in",
+        "confidence": "EXTRACTED",
+        "confidence_score": 0.9,
+        "source_file": "0001-cache-invalidation-prod-cokmesi.md"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "label": "In-Memory LRU Cache Karar\u0131 (D-0001)",
+      "file_type": "document",
+      "source_file": "0001-redis-yerine-inmemory-cache.md",
+      "source_location": "Karar",
+      "source_url": null,
+      "captured_at": "2026-06-03",
+      "author": null,
+      "contributor": null,
+      "id": "redis_yerine_inmemory_cache_d0001",
+      "community": 1,
+      "norm_label": "in-memory lru cache karar\u0131 (d-0001)"
+    },
+    {
+      "label": "Gerek\u00e7e: Redis Elendi, In-Memory Se\u00e7ildi",
+      "file_type": "document",
+      "source_file": "0001-redis-yerine-inmemory-cache.md",
+      "source_location": "Gerek\u00e7e \u2014 neden bu, di\u011ferleri neden elendi",
+      "source_url": null,
+      "captured_at": "2026-06-03",
+      "author": null,
+      "contributor": null,
+      "id": "redis_yerine_inmemory_cache_rationale",
+      "community": 2,
+      "norm_label": "gerekce: redis elendi, in-memory secildi"
+    },
+    {
+      "label": "Redis",
+      "file_type": "document",
+      "source_file": "0001-redis-yerine-inmemory-cache.md",
+      "source_location": "Gerek\u00e7e",
+      "source_url": null,
+      "captured_at": "2026-06-03",
+      "author": null,
+      "contributor": null,
+      "id": "redis_yerine_inmemory_cache_redis",
+      "community": 2,
+      "norm_label": "redis"
+    },
+    {
+      "label": "Y\u00fcksek Latency / S\u0131cak Veri DB \u00c7ekme Problemi",
+      "file_type": "document",
+      "source_file": "0001-redis-yerine-inmemory-cache.md",
+      "source_location": "Ba\u011flam / Problem",
+      "source_url": null,
+      "captured_at": "2026-06-03",
+      "author": null,
+      "contributor": null,
+      "id": "redis_yerine_inmemory_cache_latency_problem",
+      "community": 1,
+      "norm_label": "yuksek latency / s\u0131cak veri db cekme problemi"
+    },
+    {
+      "label": "Cache Invalidation Prod Tutars\u0131zl\u0131k Dersi (L-0001)",
+      "file_type": "document",
+      "source_file": "0001-cache-invalidation-prod-cokmesi.md",
+      "source_location": "Ne oldu",
+      "source_url": null,
+      "captured_at": "2026-06-03",
+      "author": null,
+      "contributor": null,
+      "id": "cache_invalidation_prod_cokmesi_l0001",
+      "community": 0,
+      "norm_label": "cache invalidation prod tutars\u0131zl\u0131k dersi (l-0001)"
+    },
+    {
+      "label": "TTL'e G\u00fcvenme / Stale Read Hatas\u0131",
+      "file_type": "document",
+      "source_file": "0001-cache-invalidation-prod-cokmesi.md",
+      "source_location": "Neden hata/\u00f6\u011frenme",
+      "source_url": null,
+      "captured_at": "2026-06-03",
+      "author": null,
+      "contributor": null,
+      "id": "cache_invalidation_prod_cokmesi_stale_read",
+      "community": 0,
+      "norm_label": "ttl'e guvenme / stale read hatas\u0131"
+    },
+    {
+      "label": "Genel Kural: Explicit Invalidation + TTL Birlikte",
+      "file_type": "document",
+      "source_file": "0001-cache-invalidation-prod-cokmesi.md",
+      "source_location": "Genel kural",
+      "source_url": null,
+      "captured_at": "2026-06-03",
+      "author": null,
+      "contributor": null,
+      "id": "cache_invalidation_prod_cokmesi_genel_kural",
+      "community": 0,
+      "norm_label": "genel kural: explicit invalidation + ttl birlikte"
+    }
+  ],
+  "links": [
+    {
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "0001-cache-invalidation-prod-cokmesi.md",
+      "source_location": "Genel kural",
+      "weight": 1.0,
+      "source": "cache_invalidation_prod_cokmesi_genel_kural",
+      "target": "redis_yerine_inmemory_cache_d0001"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "0001-cache-invalidation-prod-cokmesi.md",
+      "source_location": "\u0130lgili kararlar",
+      "weight": 1.0,
+      "source": "cache_invalidation_prod_cokmesi_l0001",
+      "target": "redis_yerine_inmemory_cache_d0001"
+    },
+    {
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "0001-redis-yerine-inmemory-cache.md",
+      "source_location": "Ba\u011flam / Problem",
+      "weight": 1.0,
+      "source": "redis_yerine_inmemory_cache_d0001",
+      "target": "redis_yerine_inmemory_cache_latency_problem"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "0001-redis-yerine-inmemory-cache.md",
+      "source_location": "Gerek\u00e7e \u2014 neden bu, di\u011ferleri neden elendi",
+      "weight": 1.0,
+      "source": "redis_yerine_inmemory_cache_rationale",
+      "target": "redis_yerine_inmemory_cache_d0001"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "0001-redis-yerine-inmemory-cache.md",
+      "source_location": "Gerek\u00e7e",
+      "weight": 1.0,
+      "source": "redis_yerine_inmemory_cache_rationale",
+      "target": "redis_yerine_inmemory_cache_redis"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "0001-cache-invalidation-prod-cokmesi.md",
+      "source_location": "Neden hata/\u00f6\u011frenme",
+      "weight": 1.0,
+      "source": "cache_invalidation_prod_cokmesi_stale_read",
+      "target": "cache_invalidation_prod_cokmesi_l0001"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "0001-cache-invalidation-prod-cokmesi.md",
+      "source_location": "Genel kural",
+      "weight": 1.0,
+      "source": "cache_invalidation_prod_cokmesi_genel_kural",
+      "target": "cache_invalidation_prod_cokmesi_stale_read"
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "inmemory_cache_invalidation_lesson_flow",
+      "label": "In-Memory Cache Karar\u0131 \u2192 Invalidation Eksikli\u011fi \u2192 Prod Stale Read Dersi",
+      "nodes": [
+        "redis_yerine_inmemory_cache_d0001",
+        "cache_invalidation_prod_cokmesi_l0001",
+        "cache_invalidation_prod_cokmesi_stale_read",
+        "cache_invalidation_prod_cokmesi_genel_kural"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 0.9,
+      "source_file": "0001-cache-invalidation-prod-cokmesi.md"
+    }
+  ]
+}

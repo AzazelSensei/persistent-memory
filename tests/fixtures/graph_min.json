@@ -1,0 +1,13 @@
+{
+  "directed": false, "multigraph": false, "graph": {},
+  "nodes": [
+    {"id": "auth_service", "label": "AuthService", "community": 0, "file_type": "code", "source_file": "adr/D-0001.md"},
+    {"id": "token_store", "label": "TokenStore", "community": 0, "file_type": "code", "source_file": "adr/D-0001.md"},
+    {"id": "payment_flow", "label": "PaymentFlow", "community": 1, "file_type": "code", "source_file": "adr/D-0002.md"},
+    {"id": "orphan_note", "label": "OrphanNote", "community": 2, "file_type": "doc", "source_file": "observations/o1.md"}
+  ],
+  "links": [
+    {"source": "auth_service", "target": "token_store", "relation": "uses", "confidence": "EXTRACTED", "weight": 1.0},
+    {"source": "auth_service", "target": "payment_flow", "relation": "conflicts_with", "confidence": "AMBIGUOUS", "weight": 1.0}
+  ]
+}
