@@ -198,6 +198,7 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
             "status": "ok",
             "host": cfg.host,
             "port": cfg.port,
+            "records_dir": str(cfg.records_dir),
             "decisions_count": count_markdown(cfg.decisions_dir),
             "lessons_count": count_markdown(cfg.lessons_dir),
         }

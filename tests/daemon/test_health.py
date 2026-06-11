@@ -26,3 +26,14 @@ def test_health_reports_counts(tmp_path):
     assert "decisions_count" in body
     assert "lessons_count" in body
     assert body["decisions_count"] == 0
+
+
+def test_health_exposes_records_dir(tmp_path):
+    from persistent_memory.daemon.app import create_app
+    from persistent_memory.daemon.config import DaemonConfig
+    from starlette.testclient import TestClient
+
+    cfg = DaemonConfig(records_dir=tmp_path, watch_enabled=False)
+    client = TestClient(create_app(records_dir=tmp_path, config=cfg))
+    body = client.get("/api/health").json()
+    assert body["records_dir"] == str(tmp_path)

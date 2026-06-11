@@ -23,7 +23,7 @@ The agent reading this skill may not be Claude Code — the system is agent-agno
    - `curl 'http://127.0.0.1:37778/api/prompt-recall?q=QUERY&project=PROJECT'` — memory block to append to a prompt
    - `curl 'http://127.0.0.1:37778/api/recall?project=PROJECT'` — session-start recall block
    - `curl 'http://127.0.0.1:37778/api/records/D-0001/raw'` — record body
-   - Write endpoints (`/api/extract`, accept/reject, `/api/consolidate`) require the `X-PM-Token` header; token file: `docs/.pm-index/daemon.token` in the repo root.
+   - Write endpoints (`/api/extract`, accept/reject, `/api/consolidate`) require the `X-PM-Token` header. The token file lives in the MEMORY repo (the daemon's records root), NOT in the project you are currently working in — discover it via `GET /api/health` (`records_dir` field): `<records_dir>/.pm-index/daemon.token`.
 
 Notes: (a) The slash commands below are Claude Code-specific; on other agents use the HTTP endpoint or direct file write described in the "Writing records" section below. (b) Extraction uses per-source backends: Codex transcripts (`~/.codex/...`) are processed by `codex exec`; Claude transcripts and manual `/api/extract` calls use `claude -p`. Without the relevant CLI, automatic record creation falls back gracefully (codex→claude if `codex` is missing; both CLIs absent → recall/search keep working in degraded mode, only auto-write is disabled). (c) Records are plain markdown (`docs/decisions/*.md`, `docs/lessons/*.md`); worst case, any agent can read the files directly.
 
@@ -38,7 +38,8 @@ Most records are created automatically via the extraction worker every 5 message
 The `POST /api/records` endpoint creates a record on demand. It requires the `X-PM-Token` header.
 
 ```bash
-TOKEN=$(cat docs/.pm-index/daemon.token)
+RECORDS_DIR=$(curl -s http://127.0.0.1:37778/api/health | python3 -c "import sys,json; print(json.load(sys.stdin)['records_dir'])")
+TOKEN=$(cat "$RECORDS_DIR/.pm-index/daemon.token")
 curl -X POST http://127.0.0.1:37778/api/records \
   -H "X-PM-Token: $TOKEN" \
   -H "Content-Type: application/json" \
