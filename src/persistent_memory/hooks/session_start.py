@@ -19,16 +19,18 @@ from persistent_memory.hooks.common import (
     project_name,
     read_hook_payload,
 )
+from persistent_memory.i18n import t
 
 RECALL_ENDPOINT = "/api/recall"
 RECALL_HTTP_TIMEOUT_SECONDS = 3.0
 HOOK_EVENT_NAME = "SessionStart"
-CRITICAL_LABELS = {
-    "ollama-server": "ollama server is down",
-    "bge-m3": "bge-m3 model is missing",
-    "venv": ".venv is not ready",
+# Warning text is resolved at call time via i18n.t so PM_LANG applies per process.
+CRITICAL_LABEL_KEYS = {
+    "ollama-server": "session_start.critical.ollama_server",
+    "bge-m3": "session_start.critical.bge_m3",
+    "venv": "session_start.critical.venv",
 }
-DOCTOR_HINT = "run `/persistent-memory doctor`"
+DOCTOR_HINT_KEY = "session_start.doctor_hint"
 
 
 def fetch_recall_block(project: str) -> str:
@@ -52,6 +54,13 @@ def _emit(additional_context: str) -> None:
     sys.stdout.write(json.dumps(payload))
 
 
+def _critical_label(name: str) -> str:
+    key = CRITICAL_LABEL_KEYS.get(name)
+    if key is None:
+        return name
+    return t(key)
+
+
 def _build_warning() -> str:
     try:
         missing = detect_missing_critical()
@@ -59,8 +68,8 @@ def _build_warning() -> str:
         return ""
     if not missing:
         return ""
-    labels = ", ".join(CRITICAL_LABELS.get(name, name) for name in missing)
-    return f"⚠️ persistent-memory: {labels} — {DOCTOR_HINT}"
+    labels = ", ".join(_critical_label(name) for name in missing)
+    return f"⚠️ persistent-memory: {labels} — {t(DOCTOR_HINT_KEY)}"
 
 
 def _prepend_warning(block: str, warning: str) -> str:

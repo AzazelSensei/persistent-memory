@@ -9,7 +9,14 @@ never executed.
 from pathlib import Path
 
 CLAUDE_BIN = "claude"
+CODEX_BIN = "codex"
 EXTRACTION_MODEL = "claude-sonnet-4-6"
+# Codex model: empty string means "use codex config default" (no -m flag).
+# Smoke-tested 2026-06-11: gpt-5.1-codex-mini and gpt-5.1-codex are not
+# supported with a ChatGPT account; only the config default (gpt-5.5) works.
+# Override via PM_CODEX_EXTRACTION_MODEL env var.
+CODEX_EXTRACTION_MODEL = ""
+CODEX_EXTRACTION_MODEL_ENV = "PM_CODEX_EXTRACTION_MODEL"
 EXTRACTION_EFFORT = "low"
 OUTPUT_FORMAT = "json"
 PERMISSION_MODE = "bypassPermissions"
@@ -85,4 +92,16 @@ def build_extraction_argv(prompt: str, cwd: str) -> list[str]:
     ]
     if cwd:
         argv.extend(["--add-dir", cwd])
+    return argv
+
+
+def build_codex_extraction_argv(prompt: str, records_dir: Path) -> list[str]:
+    import os
+
+    records_repo_root = str(Path(records_dir).parent)
+    model = os.environ.get(CODEX_EXTRACTION_MODEL_ENV) or CODEX_EXTRACTION_MODEL
+    argv = [CODEX_BIN, "exec", "--ephemeral", "--skip-git-repo-check", "-C", records_repo_root, "-s", "workspace-write"]
+    if model:
+        argv.extend(["-m", model])
+    argv.append(prompt)
     return argv

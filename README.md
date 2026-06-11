@@ -1,3 +1,5 @@
+<p align="center"><img src="src/persistent_memory/daemon/static/pm/logo.png" width="140" alt="persistent-memory logo"></p>
+
 # persistent-memory
 
 **Human-like persistent memory for AI coding agents — fully local, no extra API keys.**

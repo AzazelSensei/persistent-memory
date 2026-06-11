@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="icon" type="image/png" href="/static/pm/logo.png" />
 <link rel="stylesheet" href="/static/pm/styles.css" />
 <style>
   html, body { margin: 0; height: 100%; background: #0a0d14; overflow: hidden; }
@@ -19,6 +20,8 @@
 <script>
   window.PM = {{ pm_json | safe }};
   window.PM_TOKEN = "{{ pm_token }}";
+  window.PM_I18N = {{ pm_i18n_json | safe }};
+  window.t = function(k, fallback) { return (window.PM_I18N && window.PM_I18N[k]) || fallback || k; };
   window.PM_API = {
     statusEndpoint: { accepted: "accept", reverted: "reject" },
     setStatus: function (id, uiStatus) {

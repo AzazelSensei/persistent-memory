@@ -117,7 +117,7 @@
         <h1 className="pm-h" style={{ marginTop: 6 }}>Search</h1>
         <div className="se-box">
           <Icon name="search" size={20} style={{ color: "var(--accent-ink)" }} />
-          <input autoFocus placeholder="decision, lesson, tag, content… (e.g. embedding, deadlock, canary)" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input autoFocus placeholder={t("ui.search.hint", "decision, lesson, tag, content… (e.g. embedding, deadlock, canary)")} value={q} onChange={(e) => setQ(e.target.value)} />
           {q && <span className="pm-kbd" style={{ cursor: "pointer" }} onClick={() => setQ("")}>clear</span>}
         </div>
         {q.trim() ? (
@@ -157,10 +157,10 @@
       duplicate: ["graph", "var(--violet)", "Duplicate"],
     };
     const kpis = [
-      ["Inconsistencies", PM.health.filter((h) => h.level === "conflict").length, "var(--st-reverted)", "link"],
-      ["Stale 'proposed'", 5, "var(--st-proposed)", "timeline"],
-      ["Missing source", 3, "var(--st-superseded)", "session"],
-      ["Possible duplicates", PM.health.filter((h) => h.level === "duplicate").length, "var(--violet)", "graph"],
+      [t("ui.health.inconsistencies", "Inconsistencies"), PM.health.filter((h) => h.level === "conflict").length, "var(--st-reverted)", "link"],
+      [t("ui.health.stale_proposed", "Stale 'proposed'"), 5, "var(--st-proposed)", "timeline"],
+      [t("ui.health.missing_source", "Missing source"), 3, "var(--st-superseded)", "session"],
+      [t("ui.health.possible_duplicates", "Possible duplicates"), PM.health.filter((h) => h.level === "duplicate").length, "var(--violet)", "graph"],
     ];
     return (
       <div className="pm-page fade-in">

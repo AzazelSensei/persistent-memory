@@ -101,30 +101,30 @@
         <div style={{ display: "flex", alignItems: "flex-end", gap: 14 }}>
           <div>
             <div className="pm-eyebrow">28 May 2026 · local · 127.0.0.1</div>
-            <h1 className="pm-h" style={{ marginTop: 6, fontSize: 23 }}>Memory — overview</h1>
+            <h1 className="pm-h" style={{ marginTop: 6, fontSize: 23 }}>{t("ui.dash.heading", "Memory — overview")}</h1>
           </div>
         </div>
 
         <div className="dash-grid4">
           <div className="pm-card dash-stat">
-            <div className="l"><Icon name="overview" size={14} /> Total memories</div>
+            <div className="l"><Icon name="overview" size={14} /> {t("ui.dash.total_memories", "Total memories")}</div>
             <div className="v">{s.total}</div>
             <div className="sub">{s.accepted} accepted · {s.superseded} superseded</div>
             <Spark pts={[120, 126, 131, 138, 144, 150, 157]} color="var(--accent)" />
           </div>
           <div className="pm-card dash-stat">
-            <div className="l"><Icon name="queue" size={14} /> Pending review</div>
+            <div className="l"><Icon name="queue" size={14} /> {t("ui.dash.pending_review", "Pending review")}</div>
             <div className="v warn">{livePending}</div>
             <div className="sub">{reviewed > 0 ? `${reviewed} reviewed this session` : "none reviewed yet"}</div>
             <Spark pts={[44, 42, 45, 41, 40, 39, 38]} color="var(--st-proposed)" />
           </div>
           <div className="pm-card dash-stat">
-            <div className="l"><Icon name="graph" size={14} /> Graph edges</div>
+            <div className="l"><Icon name="graph" size={14} /> {t("ui.dash.graph_edges", "Graph edges")}</div>
             <div className="v">{s.graphEdges}<small>/{s.graphNodes} nodes</small></div>
             <div className="sub">{s.clusters} clusters · 4 unexpected</div>
           </div>
           <div className="pm-card dash-stat">
-            <div className="l"><Icon name="project" size={14} /> Projects</div>
+            <div className="l"><Icon name="project" size={14} /> {t("ui.dash.projects", "Projects")}</div>
             <div className="v">{s.projects}</div>
             <div className="sub">most active: persistent-memory</div>
           </div>
@@ -135,7 +135,7 @@
             <div className="pm-card dash-cta">
               <div className="big">{livePending}</div>
               <div className="txt">
-                <div className="t">records pending review</div>
+                <div className="t">{t("ui.dash.records_pending", "records pending review")}</div>
                 <div className="d">Most were generated automatically. Review them quickly with the keyboard in queue mode, or bulk-process them in the list.</div>
                 <div className="dash-pbars" style={{ marginTop: 14 }}>
                   {pendingByProject.map(([p, n]) => (
@@ -148,13 +148,13 @@
                 </div>
               </div>
               <div className="acts">
-                <button className="pm-btn accent" onClick={() => enterQueue("decision")}><Icon name="queue" size={15} /> Enter queue</button>
-                <button className="pm-btn sm" onClick={() => nav("decisions")}>View list</button>
+                <button className="pm-btn accent" onClick={() => enterQueue("decision")}><Icon name="queue" size={15} /> {t("ui.btn.enter_queue", "Enter queue")}</button>
+                <button className="pm-btn sm" onClick={() => nav("decisions")}>{t("ui.btn.view_list", "View list")}</button>
               </div>
             </div>
 
             <div className="pm-card dash-panel">
-              <div className="dash-ph"><Icon name="timeline" size={16} style={{ color: "var(--accent-ink)" }} /><span className="t">Recent activity</span><span className="more" onClick={() => nav("timeline")}>Timeline <Icon name="chevR" size={13} /></span></div>
+              <div className="dash-ph"><Icon name="timeline" size={16} style={{ color: "var(--accent-ink)" }} /><span className="t">{t("ui.dash.recent_activity", "Recent activity")}</span><span className="more" onClick={() => nav("timeline")}>Timeline <Icon name="chevR" size={13} /></span></div>
               <div className="dash-feed">
                 {PM.activity.map((a, i) => (
                   <div className="dash-frow" key={i} onClick={() => nav("detail", { id: a.id })}>
@@ -171,7 +171,7 @@
 
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--gap)" }}>
             <div className="pm-card dash-panel">
-              <div className="dash-ph"><Icon name="health" size={16} style={{ color: "var(--st-proposed)" }} /><span className="t">Health & audit</span><span className="more" onClick={() => nav("health")}>All <Icon name="chevR" size={13} /></span></div>
+              <div className="dash-ph"><Icon name="health" size={16} style={{ color: "var(--st-proposed)" }} /><span className="t">{t("ui.dash.health_audit", "Health & audit")}</span><span className="more" onClick={() => nav("health")}>{t("ui.dash.all", "All")} <Icon name="chevR" size={13} /></span></div>
               <div className="dash-health">
                 <div className="dash-hrow" onClick={() => nav("supersession")}>
                   <span className="hi" style={{ background: "color-mix(in srgb, var(--violet) 16%, transparent)", color: "var(--violet)" }}><Icon name="link" size={13} /></span>
@@ -192,7 +192,7 @@
               </div>
             </div>
             <div className="pm-card dash-panel">
-              <div className="dash-ph"><Icon name="project" size={16} style={{ color: "var(--accent-ink)" }} /><span className="t">Active projects</span><span className="more" onClick={() => nav("projects")}>All <Icon name="chevR" size={13} /></span></div>
+              <div className="dash-ph"><Icon name="project" size={16} style={{ color: "var(--accent-ink)" }} /><span className="t">{t("ui.dash.active_projects", "Active projects")}</span><span className="more" onClick={() => nav("projects")}>{t("ui.dash.all", "All")} <Icon name="chevR" size={13} /></span></div>
               <div className="dash-prj">
                 {PM.projects.slice(0, 6).map((p) => (
                   <div className="dash-prow" key={p.id} onClick={() => nav("project", { id: p.id })}>

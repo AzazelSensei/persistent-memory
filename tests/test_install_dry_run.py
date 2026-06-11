@@ -41,11 +41,27 @@ def test_dry_run_reports_planned_actions(tmp_path):
     assert ".venv" in out
 
 
-def test_dry_run_lists_all_four_hooks(tmp_path):
+def test_dry_run_launchd_reports_pm_lang(tmp_path):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    result = _run_dry({"PM_TARGET_HOME": str(fake_home), "PM_LANG": "tr"})
+    assert result.returncode == 0, result.stderr
+    assert "PM_LANG=tr" in result.stdout
+
+
+def test_dry_run_launchd_reports_detected_lang_from_env(tmp_path):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    result = _run_dry({"PM_TARGET_HOME": str(fake_home), "PM_LANG": "", "LC_ALL": "en_US.UTF-8", "LANG": ""})
+    assert result.returncode == 0, result.stderr
+    assert "PM_LANG=en" in result.stdout
+
+
+def test_dry_run_lists_all_five_hooks(tmp_path):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     out = _run_dry({"PM_TARGET_HOME": str(fake_home)}).stdout
-    for hook in ("UserPromptSubmit", "Stop", "PreCompact", "SessionStart"):
+    for hook in ("UserPromptSubmit", "Stop", "PreCompact", "SessionStart", "PreToolUse"):
         assert hook in out
 
 

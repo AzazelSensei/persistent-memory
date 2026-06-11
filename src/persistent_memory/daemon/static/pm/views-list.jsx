@@ -100,18 +100,18 @@
         <div className="l-head">
           <div>
             <div className="pm-eyebrow">{kind === "lesson" ? "Lesson & mistake records" : "Decision records"}</div>
-            <h1 className="pm-h" style={{ marginTop: 6 }}>{kind === "lesson" ? "Lessons" : "Decisions"}</h1>
+            <h1 className="pm-h" style={{ marginTop: 6 }}>{kind === "lesson" ? t("ui.list.heading.lessons", "Lessons") : t("ui.list.heading.decisions", "Decisions")}</h1>
           </div>
           <div className="sp" />
           <span className="l-count">{rows.length} / {base.length} records</span>
           <button className="pm-btn accent sm" onClick={() => enterQueue(kind)}>
-            <Icon name="queue" size={15} /> Queue mode
+            <Icon name="queue" size={15} /> {t("ui.list.queue_mode", "Queue mode")}
           </button>
         </div>
 
         <div className="l-toolbar">
           <div className="l-chips">
-            <button className={"l-chip" + (statFilter === "all" ? " on" : "")} onClick={() => setStatFilter("all")}>All <span className="n">{counts.all}</span></button>
+            <button className={"l-chip" + (statFilter === "all" ? " on" : "")} onClick={() => setStatFilter("all")}>{t("ui.list.filter.all", "All")} <span className="n">{counts.all}</span></button>
             {STAT_ORDER.map((st) => (
               <button key={st} className={"l-chip" + (statFilter === st ? " on" : "")} onClick={() => setStatFilter(st)}>
                 <span className="d" style={{ background: STAT_COL[st] }} />{st} <span className="n">{counts[st]}</span>
@@ -119,7 +119,7 @@
             ))}
           </div>
           <select className="l-sel" value={project} onChange={(e) => setProject(e.target.value)}>
-            <option value="all">all projects</option>
+            <option value="all">{t("ui.list.all_projects", "all projects")}</option>
             {PM.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           <div className="l-srch">
@@ -133,9 +133,9 @@
             <Icon name="decision" size={15} />
             <b>{selIds.length}</b> records selected
             <div style={{ flex: 1 }} />
-            <button className="pm-btn ok sm" onClick={() => { onBulk(selIds, "accepted"); setSelected({}); }}><Icon name="decision" size={14} /> Accept selected</button>
-            <button className="pm-btn no sm" onClick={() => { onBulk(selIds, "reverted"); setSelected({}); }}><Icon name="close" size={14} /> Reject selected</button>
-            <button className="pm-btn ghost sm" onClick={() => setSelected({})}>Clear</button>
+            <button className="pm-btn ok sm" onClick={() => { onBulk(selIds, "accepted"); setSelected({}); }}><Icon name="decision" size={14} /> {t("ui.list.bulk.accept", "Accept selected")}</button>
+            <button className="pm-btn no sm" onClick={() => { onBulk(selIds, "reverted"); setSelected({}); }}><Icon name="close" size={14} /> {t("ui.list.bulk.reject", "Reject selected")}</button>
+            <button className="pm-btn ghost sm" onClick={() => setSelected({})}>{t("ui.list.bulk.clear", "Clear")}</button>
           </div>
         )}
 
@@ -196,9 +196,9 @@
         <div className="pm-page fade-in">
           <div className="q-empty pm-card" style={{ padding: 44 }}>
             <div className="big"><Icon name="decision" size={28} /></div>
-            <h2 className="pm-h" style={{ fontSize: 19 }}>Queue complete</h2>
+            <h2 className="pm-h" style={{ fontSize: 19 }}>{t("ui.queue.complete", "Queue complete")}</h2>
             <p className="pm-sub" style={{ marginBottom: 22 }}><b style={{ color: "var(--txt-hi)" }}>{done}</b> records reviewed this session. No pending {kind === "lesson" ? "lessons" : "decisions"} left.</p>
-            <button className="pm-btn accent" onClick={() => exitQueue(kind)}>Back to list</button>
+            <button className="pm-btn accent" onClick={() => exitQueue(kind)}>{t("ui.queue.back_to_list", "Back to list")}</button>
           </div>
         </div>
       );
@@ -207,7 +207,7 @@
     return (
       <div className="pm-page fade-in">
         <div className="q-top">
-          <button className="pm-btn ghost sm" onClick={() => exitQueue(kind)}><Icon name="arrowLeft" size={14} /> Back to list</button>
+          <button className="pm-btn ghost sm" onClick={() => exitQueue(kind)}><Icon name="arrowLeft" size={14} /> {t("ui.queue.back_to_list", "Back to list")}</button>
           <div className="q-prog"><i style={{ width: ((idx) / queue.length) * 100 + "%" }} /></div>
           <span className="l-count">{idx + 1} / {queue.length} · {done} reviewed</span>
         </div>
@@ -238,15 +238,15 @@
           </div>
         </div>
         <div className="q-actions">
-          <button className="pm-btn no" onClick={() => act("reverted")}><Icon name="close" size={16} /> Reject</button>
-          <button className="pm-btn ghost" onClick={advance}><Icon name="arrowRight" size={16} /> Skip</button>
-          <button className="pm-btn ok" onClick={() => act("accepted")}><Icon name="decision" size={16} /> Approve</button>
+          <button className="pm-btn no" onClick={() => act("reverted")}><Icon name="close" size={16} /> {t("ui.btn.reject", "Reject")}</button>
+          <button className="pm-btn ghost" onClick={advance}><Icon name="arrowRight" size={16} /> {t("ui.queue.skip", "Skip")}</button>
+          <button className="pm-btn ok" onClick={() => act("accepted")}><Icon name="decision" size={16} /> {t("ui.btn.approve", "Approve")}</button>
         </div>
         <div className="q-hint">
-          <span><span className="pm-kbd">A</span> approve</span>
-          <span><span className="pm-kbd">R</span> reject</span>
-          <span><span className="pm-kbd">J</span> skip</span>
-          <span><span className="pm-kbd">Esc</span> exit</span>
+          <span><span className="pm-kbd">A</span> {t("ui.queue.hint.approve", "approve")}</span>
+          <span><span className="pm-kbd">R</span> {t("ui.queue.hint.reject", "reject")}</span>
+          <span><span className="pm-kbd">J</span> {t("ui.queue.hint.skip", "skip")}</span>
+          <span><span className="pm-kbd">Esc</span> {t("ui.queue.hint.exit", "exit")}</span>
         </div>
       </div>
     );

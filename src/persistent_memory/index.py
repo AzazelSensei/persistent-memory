@@ -11,18 +11,11 @@ import re
 import sys
 from pathlib import Path
 
+from .i18n import t
 from .lint import INDEX_FILENAME, LoadedRecord
 from .schema import RecordType, parse_document
 
 HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
-
-INDEX_TITLE = "# Decision / Lesson Catalog"
-EMPTY_SECTION_PLACEHOLDER = "_no records_"
-SECTION_BY_TYPE = {
-    RecordType.DECISION: "## Decisions",
-    RecordType.LESSON: "## Lessons",
-    RecordType.PRINCIPLE: "## Principles",
-}
 
 
 def _extract_title(loaded: LoadedRecord) -> str:
@@ -49,7 +42,7 @@ def _section_rows(loaded_items: list[LoadedRecord], record_type: RecordType) -> 
     rows = [item for item in loaded_items if item.record.type is record_type]
     rows.sort(key=lambda item: item.record.date, reverse=True)
     if not rows:
-        return [EMPTY_SECTION_PLACEHOLDER]
+        return [t("index.empty_section")]
     return [format_index_row(item) for item in rows]
 
 
@@ -71,12 +64,19 @@ def _collect_records_resilient(directory: Path) -> list[LoadedRecord]:
     return loaded
 
 
+SECTION_TYPE_KEY = {
+    RecordType.DECISION: "index.section.decisions",
+    RecordType.LESSON: "index.section.lessons",
+    RecordType.PRINCIPLE: "index.section.principles",
+}
+
+
 def build_index_markdown(directory: Path) -> str:
     """Build the full catalog markdown for all parseable records in a directory."""
     loaded = _collect_records_resilient(directory)
-    lines = [INDEX_TITLE, "", f"_Total: {len(loaded)} records_", ""]
-    for record_type, heading in SECTION_BY_TYPE.items():
-        lines.append(heading)
+    lines = [t("index.title"), "", t("index.total").format(count=len(loaded)), ""]
+    for record_type, section_key in SECTION_TYPE_KEY.items():
+        lines.append(t(section_key))
         lines.extend(_section_rows(loaded, record_type))
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

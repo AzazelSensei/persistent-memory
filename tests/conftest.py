@@ -9,9 +9,14 @@ if str(SRC_DIR) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
-def _reset_shared_state():
+def _reset_shared_state(monkeypatch):
     from persistent_memory.daemon.services import reset_metrics
+    from persistent_memory.i18n import reset_lang_cache
     from persistent_memory.retriever import _reset_bm25_cache
 
+    monkeypatch.setenv("PM_LANG", "en")
+    reset_lang_cache()
     _reset_bm25_cache()
     reset_metrics()
+    yield
+    reset_lang_cache()

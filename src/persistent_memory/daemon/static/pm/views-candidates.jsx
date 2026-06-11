@@ -71,16 +71,16 @@
         </div>
         <div className="cd-pair">
           <div className="cd-side old">
-            <div className="role">Old — will be superseded</div>
+            <div className="role">{t("ui.cand.role_old", "Old — will be superseded")}</div>
             <div className="lb">{oldLabel}</div>
             <RecordRef id={oldId} nav={nav} />
           </div>
           <div className="cd-arrow">
             <Icon name="arrowRight" size={17} />
-            <button className="cd-swap" onClick={() => setSwapped((v) => !v)}>swap direction</button>
+            <button className="cd-swap" onClick={() => setSwapped((v) => !v)}>{t("ui.btn.swap", "swap direction")}</button>
           </div>
           <div className="cd-side new">
-            <div className="role">New — current record</div>
+            <div className="role">{t("ui.cand.role_new", "New — current record")}</div>
             <div className="lb">{newLabel}</div>
             <RecordRef id={newId} nav={nav} />
           </div>
@@ -90,8 +90,8 @@
           <div className="cd-acts">
             <button className="pm-btn accent" disabled={!canLink}
               title={canLink ? "Link the old record to the new/current record" : "Record IDs could not be resolved — cannot link"}
-              onClick={onLink}><Icon name="link" size={14} /> Link — target: new/current record</button>
-            <button className="pm-btn" onClick={onDismiss}><Icon name="close" size={13} /> Dismiss</button>
+              onClick={onLink}><Icon name="link" size={14} /> {t("ui.btn.link", "Link — target: new/current record")}</button>
+            <button className="pm-btn" onClick={onDismiss}><Icon name="close" size={13} /> {t("ui.btn.dismiss", "Dismiss")}</button>
           </div>
         )}
       </div>
@@ -112,10 +112,10 @@
     return (
       <div className="pm-page fade-in">
         <div className="pm-eyebrow">Graph cross-cluster links · consolidation suggestions</div>
-        <h1 className="pm-h" style={{ marginTop: 6 }}>Supersession candidates</h1>
-        {cands === null && <div className="pm-empty" style={{ paddingTop: 30 }}>Loading…</div>}
+        <h1 className="pm-h" style={{ marginTop: 6 }}>{t("ui.cand.heading", "Supersession candidates")}</h1>
+        {cands === null && <div className="pm-empty" style={{ paddingTop: 30 }}>{t("ui.cand.loading", "Loading…")}</div>}
         {cands !== null && cands.length === 0 && (
-          <div className="pm-empty" style={{ paddingTop: 30 }}>No candidates. If the graph is stale, run consolidation first.</div>
+          <div className="pm-empty" style={{ paddingTop: 30 }}>{t("ui.cand.no_candidates", "No candidates. If the graph is stale, run consolidation first.")}</div>
         )}
         {cands !== null && cands.length > 0 && (
           <div className="cd-list">

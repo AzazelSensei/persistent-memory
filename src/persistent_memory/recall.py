@@ -1,21 +1,24 @@
 """Fixed-budget recall block: top memory records rendered for prompt injection.
 
-The block is injected into new sessions as additional context, so
-``RECALL_HEADER`` is functional AI-facing instruction text, not
-decoration. Budgeting uses a cheap chars/4 token estimate — exact
-tokenization is not worth a tokenizer dependency for a soft cap.
-Candidates below ``MIN_VISIBILITY_SCORE`` are dropped so near-zero
-results (e.g. heavily dampened superseded records) never spend budget.
+The block is injected into new sessions as additional context, so the
+recall header is functional AI-facing instruction text, not decoration;
+it is resolved at call time via ``i18n.t`` so the user language applies.
+Budgeting uses a cheap chars/4 token estimate — exact tokenization is
+not worth a tokenizer dependency for a soft cap. Candidates below
+``MIN_VISIBILITY_SCORE`` are dropped so near-zero results (e.g. heavily
+dampened superseded records) never spend budget.
 """
 
 from __future__ import annotations
 
 from typing import Any, Callable
 
+from .i18n import t
+
 CHARS_PER_TOKEN = 4
 DEFAULT_TOKEN_BUDGET = 1200
 MIN_VISIBILITY_SCORE = 1e-3
-RECALL_HEADER = "## Recall — past decisions and lessons"
+RECALL_HEADER_KEY = "recall.header"
 RECALL_TOP_K = 20
 
 
@@ -37,8 +40,9 @@ def build_recall_block(project: str | None, searcher: Callable[..., list[Any]],
     visible = [c for c in candidates if c.score >= MIN_VISIBILITY_SCORE]
     if not visible:
         return ""
-    lines = [RECALL_HEADER]
-    used = estimate_tokens(RECALL_HEADER)
+    header = t(RECALL_HEADER_KEY)
+    lines = [header]
+    used = estimate_tokens(header)
     has_body = False
     for candidate in visible:
         line = _format_candidate(candidate)

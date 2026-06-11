@@ -24,6 +24,7 @@ from persistent_memory.daemon.config import (
     INDEX_ROOT_DIRNAME,
     LESSONS_DIRNAME,
 )
+from persistent_memory.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -299,10 +300,8 @@ def run_search(query: str, *, records_dir: Path, top_k: int = DEFAULT_TOP_K) -> 
 PROMPT_RECALL_TOP_K = 3
 PROMPT_RECALL_BUDGET_TOKENS = 700
 PROMPT_RECALL_CHARS_PER_TOKEN = 4
-PROMPT_RECALL_HEADER = (
-    "📌 Relevant past memory (decisions/lessons that may relate to this message — "
-    "consider if applicable):"
-)
+# Header text is resolved at call time via i18n.t so PM_LANG applies per process.
+PROMPT_RECALL_HEADER_KEY = "prompt_recall.header"
 # Bilingual on purpose: new records use English headings ("Decision",
 # "General rule") while older corpora may still use the Turkish originals.
 DECISION_GIST_HEADINGS = ("Karar", "Decision")
@@ -392,8 +391,9 @@ def _search_for_prompt_recall(query: str, *, records_dir: Path, project: str | N
 def _format_prompt_recall_block(candidates: list, *, budget: int) -> str:
     if not candidates:
         return ""
-    lines = [PROMPT_RECALL_HEADER]
-    used = _estimate_recall_tokens(PROMPT_RECALL_HEADER)
+    header = t(PROMPT_RECALL_HEADER_KEY)
+    lines = [header]
+    used = _estimate_recall_tokens(header)
     for candidate in candidates:
         view = candidate.record
         gist = _gist_from_body(view.body, preferred_headings=_preferred_gist_headings(view.id))
@@ -813,6 +813,22 @@ def project_detail(*, project: str, projects_root: Path, records_dir: Path) -> d
     return detail
 
 
+CODEX_ROOT = Path.home() / ".codex"
+
+
+def _extraction_backend_for(transcript_path: "Path | str | None") -> str:
+    """Return "codex" if transcript_path is under ~/.codex, else "claude"."""
+    if transcript_path is None:
+        return "claude"
+    try:
+        resolved = Path(transcript_path).resolve()
+        if resolved.is_relative_to(CODEX_ROOT.resolve()):
+            return "codex"
+    except (TypeError, ValueError):
+        pass
+    return "claude"
+
+
 class TranscriptPathError(ValueError):
     pass
 
@@ -866,6 +882,12 @@ def _resolve_claude_bin(env: dict) -> str:
     from persistent_memory.extraction_prompt import CLAUDE_BIN
 
     return shutil.which(CLAUDE_BIN, path=env.get("PATH")) or CLAUDE_BIN
+
+
+def _resolve_codex_bin(env: dict) -> str | None:
+    from persistent_memory.extraction_prompt import CODEX_BIN
+
+    return shutil.which(CODEX_BIN, path=env.get("PATH"))
 
 
 def _index_subdir(records_dir: Path | None, name: str) -> Path:
@@ -1010,10 +1032,41 @@ def _existing_similar_records(slice_path: str, records_dir: Path | None) -> list
         return []
 
 
+def _build_argv_for_backend(
+    backend: str,
+    *,
+    prompt: str,
+    cwd: str,
+    records_dir: Path | None,
+    env: dict,
+) -> tuple[list[str], str]:
+    """Return (argv, executable) for the given backend.
+
+    Falls back to claude backend (with a warning) when the codex binary is
+    missing so extraction never crashes due to a missing CLI tool.
+    """
+    from persistent_memory.daemon.token import default_records_dir
+    from persistent_memory.extraction_prompt import build_codex_extraction_argv, build_extraction_argv
+
+    if backend == "codex":
+        codex_bin = _resolve_codex_bin(env)
+        if codex_bin is None:
+            logger.warning(
+                "codex binary not found; falling back to claude backend for this extraction"
+            )
+        else:
+            rdir = Path(records_dir) if records_dir else default_records_dir()
+            argv = build_codex_extraction_argv(prompt=prompt, records_dir=rdir)
+            return argv, codex_bin
+    argv = build_extraction_argv(prompt=prompt, cwd=cwd)
+    claude_bin = _resolve_claude_bin(env)
+    return argv, claude_bin
+
+
 def trigger_extraction(
     *, project: str, cwd: str, transcript_path: str | None = None, records_dir: Path | None = None
 ) -> dict:
-    from persistent_memory.extraction_prompt import build_extraction_argv, build_extraction_prompt
+    from persistent_memory.extraction_prompt import build_extraction_prompt
 
     cwd = _checked_cwd(cwd)
     with _extraction_lock:
@@ -1050,15 +1103,17 @@ def trigger_extraction(
                 )
         elif transcript_path:
             prompt = f"{prompt}\nTranscript file for this session (open it with Read): {transcript_path}\n"
-        argv = build_extraction_argv(prompt=prompt, cwd=cwd or "")
+        backend = _extraction_backend_for(transcript_path)
         env = _extraction_env()
-        claude_bin = _resolve_claude_bin(env)
+        argv, executable = _build_argv_for_backend(
+            backend, prompt=prompt, cwd=cwd or "", records_dir=records_dir, env=env
+        )
         log_path = _extraction_log_path(records_dir, project)
         log_handle = open(log_path, "w", encoding="utf-8")
         try:
             proc = subprocess.Popen(
                 argv,
-                executable=claude_bin,
+                executable=executable,
                 cwd=cwd or None,
                 env=env,
                 stdin=subprocess.DEVNULL,

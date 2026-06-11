@@ -25,7 +25,74 @@ The agent reading this skill may not be Claude Code — the system is agent-agno
    - `curl 'http://127.0.0.1:37778/api/records/D-0001/raw'` — record body
    - Write endpoints (`/api/extract`, accept/reject, `/api/consolidate`) require the `X-PM-Token` header; token file: `docs/.pm-index/daemon.token` in the repo root.
 
-Notes: (a) The slash commands below are Claude Code-specific; on other agents their equivalents are the MCP/HTTP calls above. (b) The extraction worker that WRITES records uses `claude -p` — without the `claude` CLI on the machine, automatic record creation will not run, but recall/search keep working (degraded mode). (c) Records are plain markdown (`docs/decisions/*.md`, `docs/lessons/*.md`); worst case, any agent can read the files directly.
+Notes: (a) The slash commands below are Claude Code-specific; on other agents use the HTTP endpoint or direct file write described in the "Writing records" section below. (b) Extraction uses per-source backends: Codex transcripts (`~/.codex/...`) are processed by `codex exec`; Claude transcripts and manual `/api/extract` calls use `claude -p`. Without the relevant CLI, automatic record creation falls back gracefully (codex→claude if `codex` is missing; both CLIs absent → recall/search keep working in degraded mode, only auto-write is disabled). (c) Records are plain markdown (`docs/decisions/*.md`, `docs/lessons/*.md`); worst case, any agent can read the files directly.
+
+## Writing records (any agent)
+
+### 1. Primary: automatic extraction
+
+Most records are created automatically via the extraction worker every 5 messages. The HTTP and file-write paths below are for "record this NOW" moments when you need to capture something immediately without waiting for the next extraction cycle.
+
+### 2. HTTP (any agent)
+
+The `POST /api/records` endpoint creates a record on demand. It requires the `X-PM-Token` header.
+
+```bash
+TOKEN=$(cat docs/.pm-index/daemon.token)
+curl -X POST http://127.0.0.1:37778/api/records \
+  -H "X-PM-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "lesson",
+    "title": "Always validate input before parsing",
+    "body": "## What happened\n\nParsing crashed on empty string.\n\n## General rule\n\nValidate before parse.",
+    "project": "my-project",
+    "tags": ["validation", "parsing"],
+    "salience": 0.8,
+    "session": "optional-session-id",
+    "cwd": "/optional/working/dir",
+    "agent": "codex"
+  }'
+```
+
+Request fields: `type` (`"decision"` or `"lesson"`, required), `title` (required), `project` (required), `body` (optional — omit to use the canonical template), `tags` (optional list), `salience` (optional float 0–1, default 0.5), `session`/`cwd`/`agent` (optional provenance fields, defaults: `"manual"`/`""`/`"api"`).
+
+Response on success (201): `{"id": "D-0001", "path": "/abs/path/to/file.md", "type": "decision"}`.
+
+Other write operations (same token):
+- Accept a candidate: `POST /api/records/{id}/accept`
+- Reject a candidate: `POST /api/records/{id}/reject`
+- Accept all proposed: `POST /api/records/accept-all?project=NAME&type=decision`
+- Link supersession: `POST /api/records/{old_id}/supersede-by/{new_id}`
+- Replace body (proposed only): `POST /api/records/{id}/body` with `{"body": "..."}`
+- Dismiss supersession candidate: `POST /api/supersession-candidates/dismiss`
+
+### 3. Direct file write (file-access agents)
+
+Records are plain markdown. An agent with file-system access may create `docs/decisions/D-XXXX.md` or `docs/lessons/L-XXXX.md` directly:
+
+1. **Pick the next free ID**: scan the directory for existing files matching `D-\d{4}.md` (or `L-\d{4}.md`), take the highest number, add 1, zero-pad to 4 digits (e.g. `D-0042`).
+2. **Write frontmatter** (YAML between `---` delimiters):
+   ```yaml
+   id: D-0042
+   type: decision        # or: lesson
+   status: proposed
+   date: '2026-06-11'
+   project: my-project
+   provenance:
+     session: my-session-id
+     cwd: /path/to/project
+     agent: codex
+   tags: []
+   supersedes: []
+   superseded-by: []
+   salience: 0.5
+   ```
+3. **Write body** with the canonical section headings:
+   - **Decision**: `## Context / Problem`, `## Decision`, `## Rationale`, `## Outcome / Learned`, `## Source (transcript)`
+   - **Lesson**: `## What happened`, `## Why`, `## When discovered`, `## General rule`, `## Source (transcript)`
+4. **Validate**: `./.venv/bin/python -m persistent_memory.lint docs` — must pass before considering the record complete.
+5. The file watcher auto-embeds new files; no extra action needed.
 
 ## Manual commands (override)
 
@@ -37,6 +104,14 @@ For manual intervention outside the automatic flow:
 - `/consolidate` — Trigger graphify consolidation (cluster-only or headless build), producing the surprises/questions analysis.
 
 If no command is given you don't need to do anything; the system learns on its own.
+
+## Language
+
+Set `PM_LANG=tr` (or `PM_LANG=en`) to choose the display language for recall headers, dashboard UI chrome, and hook messages. Resolution order: `PM_LANG` → `LC_ALL` → `LANG` → macOS `AppleLocale` → `en`. Locale strings are normalised to their primary subtag (`tr_TR.UTF-8` → `tr`); unsupported values fall back to English. Supported: `en`, `tr`.
+
+Record section headings (`## Context / Problem`, `## What happened`, etc.) stay canonical English by design — they are parsed by the extraction worker and must not vary.
+
+`install.sh` detects the language at install time using the same resolution order and writes `PM_LANG` into the LaunchAgent plist's `EnvironmentVariables` block so the daemon starts with the correct locale on every macOS login.
 
 ## Doctor (prerequisite check)
 

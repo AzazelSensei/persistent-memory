@@ -6,6 +6,51 @@ from persistent_memory.daemon.launch_agent import (
 )
 
 
+def test_plist_lang_none_omits_environment_variables():
+    raw = build_launch_agent_plist(
+        python_bin="/Users/x/.venv/bin/python",
+        working_dir="/Users/x/proj",
+        lang=None,
+    )
+    parsed = plistlib.loads(raw.encode("utf-8"))
+    assert "EnvironmentVariables" not in parsed
+
+
+def test_plist_lang_set_adds_pm_lang_env():
+    raw = build_launch_agent_plist(
+        python_bin="/Users/x/.venv/bin/python",
+        working_dir="/Users/x/proj",
+        lang="tr",
+    )
+    parsed = plistlib.loads(raw.encode("utf-8"))
+    assert "EnvironmentVariables" in parsed
+    assert parsed["EnvironmentVariables"]["PM_LANG"] == "tr"
+
+
+def test_plist_lang_en_adds_pm_lang_env():
+    raw = build_launch_agent_plist(
+        python_bin="/Users/x/.venv/bin/python",
+        working_dir="/Users/x/proj",
+        lang="en",
+    )
+    parsed = plistlib.loads(raw.encode("utf-8"))
+    assert "EnvironmentVariables" in parsed
+    assert parsed["EnvironmentVariables"]["PM_LANG"] == "en"
+
+
+def test_plist_lang_none_is_default():
+    raw_no_arg = build_launch_agent_plist(
+        python_bin="/Users/x/.venv/bin/python",
+        working_dir="/Users/x/proj",
+    )
+    raw_explicit_none = build_launch_agent_plist(
+        python_bin="/Users/x/.venv/bin/python",
+        working_dir="/Users/x/proj",
+        lang=None,
+    )
+    assert raw_no_arg == raw_explicit_none
+
+
 def test_plist_is_valid_and_has_label():
     raw = build_launch_agent_plist(
         python_bin="/Users/x/.venv/bin/python",

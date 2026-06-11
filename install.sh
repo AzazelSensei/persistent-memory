@@ -5,7 +5,7 @@
 #   1. doctor preflight — scans the machine and auto-installs missing prerequisites
 #   2. creates .venv (python3.12) and pip-installs the package with [daemon,mcp] extras
 #   3. copies skill/SKILL.md into ~/.claude/skills/persistent-memory
-#   4. merges the four hooks (UserPromptSubmit/Stop/PreCompact/SessionStart) into
+#   4. merges the five hooks (UserPromptSubmit/Stop/PreCompact/SessionStart/PreToolUse) into
 #      ~/.claude/settings.json (idempotent; existing user hooks are preserved; needs jq)
 #   5. if the `codex` CLI (or ~/.codex) is detected, mirrors hooks + skill into ~/.codex
 #   6. registers the read-only MCP server with `claude mcp` / `codex mcp` when available
@@ -34,7 +34,7 @@ CODEX_DIR="$TARGET_HOME/.codex"
 CODEX_HOOKS_FILE="$CODEX_DIR/hooks.json"
 CODEX_SKILL_DEST="$CODEX_DIR/skills/persistent-memory"
 
-HOOK_EVENTS=("UserPromptSubmit" "Stop" "PreCompact" "SessionStart")
+HOOK_EVENTS=("UserPromptSubmit" "Stop" "PreCompact" "SessionStart" "PreToolUse")
 
 say() { echo "$@"; }
 plan() { say "DRY-RUN: $*"; }
@@ -83,12 +83,15 @@ merge_hooks_into() {
     --arg stop "$(hook_command stop_or_session_end)" \
     --arg pre "$(hook_command pre_compact)" \
     --arg ss "$(hook_command session_start)" \
+    --arg ptu "$(hook_command pre_tool_use)" \
     'def upsert(cmd): map(select((.hooks[0].command // "") != cmd)) + [{"hooks":[{"type":"command","command":cmd}]}];
+     def upsert_matcher(cmd; matcher; tout): map(select((.hooks[0].command // "") != cmd)) + [{"matcher":matcher,"hooks":[{"type":"command","command":cmd,"timeout":tout}]}];
      .hooks = (.hooks // {})
      | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | upsert($ups))
      | .hooks.Stop = ((.hooks.Stop // []) | upsert($stop))
      | .hooks.PreCompact = ((.hooks.PreCompact // []) | upsert($pre))
-     | .hooks.SessionStart = ((.hooks.SessionStart // []) | upsert($ss))' \
+     | .hooks.SessionStart = ((.hooks.SessionStart // []) | upsert($ss))
+     | .hooks.PreToolUse = ((.hooks.PreToolUse // []) | upsert_matcher($ptu; "Agent|Task"; 5))' \
     "$file" > "$tmp"
   mv "$tmp" "$file"
 }
@@ -150,33 +153,46 @@ register_mcp() {
   fi
 }
 
+_lang_subtag() {
+  echo "$1" | sed 's/[._@-].*//' | tr '[:upper:]' '[:lower:]'
+}
+
+detect_lang() {
+  local lang=""
+  for var in PM_LANG LC_ALL LANG; do
+    local val="${!var:-}"
+    if [[ -n "$val" ]]; then
+      lang="$(_lang_subtag "$val")"
+      if [[ -n "$lang" ]]; then
+        echo "$lang"
+        return
+      fi
+    fi
+  done
+  local apple
+  apple="$(defaults read -g AppleLocale 2>/dev/null || true)"
+  if [[ -n "$apple" ]]; then
+    lang="$(_lang_subtag "$apple")"
+    [[ -n "$lang" ]] && echo "$lang" && return
+  fi
+  echo "en"
+}
+
 install_launchd() {
+  local install_lang
+  install_lang="$(detect_lang)"
   if [[ $DRY_RUN -eq 1 ]]; then
-    plan "write LaunchAgents plist $PLIST_DEST and launchctl load"
+    plan "write LaunchAgents plist $PLIST_DEST with PM_LANG=$install_lang and launchctl load"
     return
   fi
   [[ "${PM_SKIP_LAUNCHD:-0}" == "1" ]] && return
   mkdir -p "$LAUNCH_AGENTS_DIR"
-  cat > "$PLIST_DEST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.persistent-memory.daemon</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$VENV_DIR/bin/python</string>
-    <string>-m</string>
-    <string>persistent_memory.daemon</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>WorkingDirectory</key><string>$REPO_ROOT</string>
-  <key>StandardOutPath</key><string>/tmp/persistent-memory-daemon.out.log</string>
-  <key>StandardErrorPath</key><string>/tmp/persistent-memory-daemon.err.log</string>
-</dict>
-</plist>
-PLIST
+  PYTHONPATH="$REPO_ROOT/src" "$VENV_DIR/bin/python" - "$VENV_DIR/bin/python" "$REPO_ROOT" "$install_lang" <<'PYEOF' > "$PLIST_DEST"
+import sys
+from persistent_memory.daemon.launch_agent import build_launch_agent_plist
+python_bin, working_dir, lang = sys.argv[1], sys.argv[2], sys.argv[3]
+print(build_launch_agent_plist(python_bin=python_bin, working_dir=working_dir, lang=lang if lang else None), end="")
+PYEOF
   launchctl unload "$PLIST_DEST" 2>/dev/null || true
   launchctl bootout "gui/$(id -u)/com.persistent-memory.daemon" 2>/dev/null || true
   launchctl remove com.persistent-memory.daemon 2>/dev/null || true

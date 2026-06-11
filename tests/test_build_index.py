@@ -1,3 +1,5 @@
+import persistent_memory.i18n as i18n
+from persistent_memory.i18n import reset_lang_cache
 from persistent_memory.index import build_index_markdown
 from tests.test_collect_records import VALID_DECISION, write_record
 
@@ -44,3 +46,14 @@ def test_malformed_record_is_skipped_without_raising(tmp_path):
     md = build_index_markdown(tmp_path)
     assert "D-0001" in md
     assert "Total: 1" in md
+
+
+def test_index_turkish_strings(tmp_path, monkeypatch):
+    write_record(tmp_path, "d.md", VALID_DECISION)
+    monkeypatch.setenv("PM_LANG", "tr")
+    reset_lang_cache()
+    md = build_index_markdown(tmp_path)
+    assert "# Karar / Ders Kataloğu" in md
+    assert "Toplam: 1 kayıt" in md
+    assert "## Kararlar" in md
+    assert "## Dersler" in md

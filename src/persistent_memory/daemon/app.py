@@ -10,7 +10,8 @@ Read-only JSON (no token):
         /api/records/{id}/source, /api/records/{id}/raw
 
 Mutating JSON (require X-PM-Token):
-    POST /api/records/{id}/body, /api/records/accept-all,
+    POST /api/records (create decision or lesson on demand),
+         /api/records/{id}/body, /api/records/accept-all,
          /api/records/{id}/accept, /api/records/{id}/reject,
          /api/records/{old}/supersede-by/{new}, /api/consolidate,
          /api/extract, /api/supersession-candidates/dismiss
@@ -37,6 +38,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+import json
+
+from persistent_memory import i18n as _i18n
 from persistent_memory.daemon import dashboard_data, services
 from persistent_memory.daemon.config import (
     DECISIONS_DIRNAME,
@@ -99,6 +103,24 @@ class DismissCandidateRequest(BaseModel):
     source_label: str | None = None
     target_id: str | None = None
     target_label: str | None = None
+
+
+ALLOWED_RECORD_TYPES = {"decision", "lesson"}
+DEFAULT_SESSION = "manual"
+DEFAULT_CWD = ""
+DEFAULT_AGENT = "api"
+
+
+class CreateRecordRequest(BaseModel):
+    type: str
+    title: str
+    project: str
+    body: str | None = None
+    tags: list[str] = []
+    salience: float = 0.5
+    session: str | None = None
+    cwd: str | None = None
+    agent: str | None = None
 
 
 def _start_observer(cfg: DaemonConfig, loop: asyncio.AbstractEventLoop):
@@ -199,6 +221,49 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
         if type:
             records = filter_by_type(records, type)
         return {"records": records}
+
+    @app.post("/api/records", status_code=201, dependencies=[Depends(require_token)])
+    def post_create_record(payload: CreateRecordRequest):
+        from persistent_memory.records import (
+            NewRecordSpec,
+            create_decision,
+            create_lesson,
+            decision_body_template,
+            lesson_body_template,
+        )
+        from persistent_memory.schema import Provenance
+
+        if payload.type not in ALLOWED_RECORD_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"invalid type '{payload.type}': must be 'decision' or 'lesson'",
+            )
+        provenance = Provenance(
+            session=payload.session or DEFAULT_SESSION,
+            cwd=payload.cwd or DEFAULT_CWD,
+            agent=payload.agent or DEFAULT_AGENT,
+        )
+        title_prefix = f"# {payload.title}\n\n"
+        if payload.body is not None:
+            body_text = title_prefix + payload.body
+        else:
+            template = decision_body_template() if payload.type == "decision" else lesson_body_template()
+            body_text = title_prefix + template
+        spec = NewRecordSpec(
+            project=payload.project,
+            provenance=provenance,
+            tags=list(payload.tags),
+            salience=payload.salience,
+            body=body_text,
+        )
+        if payload.type == "decision":
+            path = create_decision(cfg.records_dir, spec)
+            record_type = "decision"
+        else:
+            path = create_lesson(cfg.records_dir, spec)
+            record_type = "lesson"
+        record_id = path.stem
+        return {"id": record_id, "path": str(path), "type": record_type}
 
     @app.get("/api/candidates")
     def get_candidates():
@@ -388,7 +453,11 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
         return templates.TemplateResponse(
             request,
             "app.html",
-            {"pm_json": dashboard_data.pm_payload_json(cfg), "pm_token": token},
+            {
+                "pm_json": dashboard_data.pm_payload_json(cfg),
+                "pm_token": token,
+                "pm_i18n_json": json.dumps(_i18n.ui_strings(), ensure_ascii=False),
+            },
         )
 
     @app.get("/legacy", response_class=HTMLResponse)
@@ -417,7 +486,7 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
             "list.html",
             {
                 "records": records,
-                "heading": "Decisions",
+                "heading": _i18n.t("dashboard.heading.decisions"),
                 "projects": _project_names(records),
                 "pm_token": token,
             },
@@ -431,7 +500,7 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
             "list.html",
             {
                 "records": records,
-                "heading": "Lessons",
+                "heading": _i18n.t("dashboard.heading.lessons"),
                 "projects": _project_names(records),
                 "pm_token": token,
             },

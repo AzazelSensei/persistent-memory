@@ -251,10 +251,10 @@
               {pending ? (
                 <>
                   <div className="row">
-                    <button className="pm-btn ok" onClick={() => onAction(rec.id, "accepted")}><Icon name="decision" size={15} /> Approve <span className="pm-kbd" style={{ marginLeft: 2 }}>A</span></button>
-                    <button className="pm-btn no" onClick={() => onAction(rec.id, "reverted")}><Icon name="close" size={15} /> Reject <span className="pm-kbd" style={{ marginLeft: 2 }}>R</span></button>
+                    <button className="pm-btn ok" onClick={() => onAction(rec.id, "accepted")}><Icon name="decision" size={15} /> {t("ui.btn.approve", "Approve")} <span className="pm-kbd" style={{ marginLeft: 2 }}>A</span></button>
+                    <button className="pm-btn no" onClick={() => onAction(rec.id, "reverted")}><Icon name="close" size={15} /> {t("ui.btn.reject", "Reject")} <span className="pm-kbd" style={{ marginLeft: 2 }}>R</span></button>
                   </div>
-                  <button className="pm-btn ghost" style={{ justifyContent: "flex-start" }} onClick={openEdit}><Icon name="edit" size={15} /> Edit</button>
+                  <button className="pm-btn ghost" style={{ justifyContent: "flex-start" }} onClick={openEdit}><Icon name="edit" size={15} /> {t("ui.detail.edit", "Edit")}</button>
                 </>
               ) : (
                 <div className={"d-banner " + (status === "reverted" ? "no" : "done")}>

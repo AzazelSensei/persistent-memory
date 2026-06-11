@@ -12,7 +12,7 @@ STDOUT_LOG_FILENAME = "daemon.out.log"
 STDERR_LOG_FILENAME = "daemon.err.log"
 
 
-def build_launch_agent_plist(*, python_bin: str, working_dir: str) -> str:
+def build_launch_agent_plist(*, python_bin: str, working_dir: str, lang: str | None = None) -> str:
     log_dir = f"{working_dir}/{LOG_SUBDIR}"
     config = {
         "Label": LAUNCH_AGENT_LABEL,
@@ -33,4 +33,6 @@ def build_launch_agent_plist(*, python_bin: str, working_dir: str) -> str:
         "StandardOutPath": f"{log_dir}/{STDOUT_LOG_FILENAME}",
         "StandardErrorPath": f"{log_dir}/{STDERR_LOG_FILENAME}",
     }
+    if lang is not None:
+        config["EnvironmentVariables"] = {"PM_LANG": lang}
     return plistlib.dumps(config).decode("utf-8")

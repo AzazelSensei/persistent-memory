@@ -1,3 +1,5 @@
+<p align="center"><img src="src/persistent_memory/daemon/static/pm/logo.png" width="140" alt="persistent-memory logo"></p>
+
 # persistent-memory
 
 **AI kodlama ajanları için insan gibi öğrenen kalıcı hafıza — tamamen yerel, ek API key yok.**

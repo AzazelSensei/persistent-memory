@@ -26,18 +26,18 @@
   }/*EDITMODE-END*/;
 
   const NAV = [
-    { sec: "Review" },
-    { id: "overview", icon: "overview", label: "Overview" },
-    { id: "decisions", icon: "decision", label: "Decisions", countKey: "dec" },
-    { id: "lessons", icon: "lesson", label: "Lessons", countKey: "les" },
-    { sec: "Explore" },
-    { id: "graph", icon: "graph", label: "Graph" },
-    { id: "projects", icon: "project", label: "Projects" },
-    { id: "timeline", icon: "timeline", label: "Timeline" },
-    { sec: "Tools" },
-    { id: "search", icon: "search", label: "Search" },
-    { id: "health", icon: "health", label: "Health & audit" },
-    { id: "supersession", icon: "link", label: "Supersession" },
+    { sec: t("ui.nav.sec.review", "Review") },
+    { id: "overview", icon: "overview", label: t("ui.nav.overview", "Overview") },
+    { id: "decisions", icon: "decision", label: t("ui.nav.decisions", "Decisions"), countKey: "dec" },
+    { id: "lessons", icon: "lesson", label: t("ui.nav.lessons", "Lessons"), countKey: "les" },
+    { sec: t("ui.nav.sec.explore", "Explore") },
+    { id: "graph", icon: "graph", label: t("ui.nav.graph", "Graph") },
+    { id: "projects", icon: "project", label: t("ui.nav.projects", "Projects") },
+    { id: "timeline", icon: "timeline", label: t("ui.nav.timeline", "Timeline") },
+    { sec: t("ui.nav.sec.tools", "Tools") },
+    { id: "search", icon: "search", label: t("ui.nav.search", "Search") },
+    { id: "health", icon: "health", label: t("ui.nav.health", "Health & audit") },
+    { id: "supersession", icon: "link", label: t("ui.nav.supersession", "Supersession") },
   ];
 
   function App() {
@@ -107,7 +107,7 @@
         <div className="pm-shell">
           <aside className={"pm-side" + (collapsed ? " collapsed" : "")}>
             <div className="pm-brand">
-              <div className="pm-logo">pm</div>
+              <img className="pm-logo" src="/static/pm/logo.png" alt="persistent-memory" />
               <div className="nm">persistent-memory<small>second brain · local</small></div>
             </div>
             <nav className="pm-nav">
@@ -124,7 +124,7 @@
             <div className="pm-side-foot">
               <button className={"pm-nav-item" + (activeNav === "queue" ? " on" : "")} onClick={() => enterQueue("decision")}>
                 <span className="ico"><Icon name="queue" size={17} /></span>
-                <span className="lbl">Review queue</span>
+                <span className="lbl">{window.t("ui.nav.review_queue", "Review queue")}</span>
                 {livePending > 0 && <span className="cnt warn">{livePending}</span>}
               </button>
             </div>
@@ -135,14 +135,14 @@
               <button className="pm-collapse" onClick={() => setCollapsed((c) => !c)} title="Sidebar"><Icon name="panel" size={17} /></button>
               <div className="pm-search" onClick={() => nav("search")}>
                 <Icon name="search" size={15} />
-                <input placeholder="Search memory — TR / EN…" readOnly value="" />
+                <input placeholder={window.t("ui.search.placeholder", "Search memory — TR / EN…")} readOnly value="" />
                 <span className="kbd">/</span>
               </div>
               <div className="sp" />
               <div className="pm-kpis">
-                <div className="pm-kpi"><span className="v">{PM.stats.total}</span><span className="l">total<br />memories</span></div>
-                <div className="pm-kpi"><span className="v warn">{livePending}</span><span className="l">pending<br />review</span></div>
-                <div className="pm-kpi"><span className="v">{PM.stats.graphEdges}</span><span className="l">graph<br />edges</span></div>
+                <div className="pm-kpi"><span className="v">{PM.stats.total}</span><span className="l">{window.t("ui.kpi.total_memories", "total memories")}</span></div>
+                <div className="pm-kpi"><span className="v warn">{livePending}</span><span className="l">{window.t("ui.kpi.pending_review", "pending review")}</span></div>
+                <div className="pm-kpi"><span className="v">{PM.stats.graphEdges}</span><span className="l">{window.t("ui.kpi.graph_edges", "graph edges")}</span></div>
               </div>
             </header>
             <div className="pm-scroll">{content}</div>
@@ -152,16 +152,16 @@
         {toast && <div className="pm-toast">{toast}</div>}
 
         <TweaksPanel>
-          <TweakSection label="Theme" />
-          <TweakToggle label="Dark theme" value={t.theme === "dark"} onChange={(v) => setTweak("theme", v ? "dark" : "light")} />
-          <TweakColor label="Accent color" value={t.accent}
+          <TweakSection label={window.t("ui.tweaks.theme", "Theme")} />
+          <TweakToggle label={window.t("ui.tweaks.dark_theme", "Dark theme")} value={t.theme === "dark"} onChange={(v) => setTweak("theme", v ? "dark" : "light")} />
+          <TweakColor label={window.t("ui.tweaks.accent_color", "Accent color")} value={t.accent}
             options={["#22d3ee", "#9d8cff", "#3ddc97", "#f5b13d", "#ff6b81"]}
             onChange={(v) => setTweak("accent", v)} />
-          <TweakSection label="Layout" />
-          <TweakRadio label="Density" value={t.density} options={["compact", "comfy"]} onChange={(v) => setTweak("density", v)} />
-          <TweakRadio label="Corners" value={t.radius} options={["sharp", "normal", "soft"]} onChange={(v) => setTweak("radius", v)} />
-          <TweakSection label="Typography" />
-          <TweakRadio label="UI font" value={t.font} options={["Plex Sans", "Grotesk", "System"]} onChange={(v) => setTweak("font", v)} />
+          <TweakSection label={window.t("ui.tweaks.layout", "Layout")} />
+          <TweakRadio label={window.t("ui.tweaks.density", "Density")} value={t.density} options={["compact", "comfy"]} onChange={(v) => setTweak("density", v)} />
+          <TweakRadio label={window.t("ui.tweaks.corners", "Corners")} value={t.radius} options={["sharp", "normal", "soft"]} onChange={(v) => setTweak("radius", v)} />
+          <TweakSection label={window.t("ui.tweaks.typography", "Typography")} />
+          <TweakRadio label={window.t("ui.tweaks.ui_font", "UI font")} value={t.font} options={["Plex Sans", "Grotesk", "System"]} onChange={(v) => setTweak("font", v)} />
         </TweaksPanel>
       </div>
     );
