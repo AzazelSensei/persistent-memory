@@ -167,7 +167,7 @@ class TestExtractEndpointCodexRouting:
         services.reset_extraction_state()
         # Allow validator to accept ~/.codex path (it's in DEFAULT_TRANSCRIPT_ROOTS)
         monkeypatch.delenv(services.TRANSCRIPT_ROOTS_ENV, raising=False)
-        monkeypatch.setattr(services, "_resolve_codex_bin", lambda: "/usr/local/bin/codex")
+        monkeypatch.setattr(services, "_resolve_codex_bin", lambda env: "/usr/local/bin/codex")
         captured = {}
 
         def fake_popen(argv, *args, **kwargs):
