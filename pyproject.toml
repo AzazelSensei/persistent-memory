@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "persistent-memory"
+version = "0.1.0"
+description = "Persistent memory for Claude Code that learns like a human"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.6",
+  "PyYAML>=6.0",
+  "httpx>=0.27",
+  "numpy>=1.26",
+  "rank-bm25>=0.2.2",
+  "python-frontmatter>=1.1",
+  "networkx>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+]
+daemon = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "jinja2>=3.1",
+  "watchdog>=5.0",
+]
+mcp = [
+  "mcp>=1.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/persistent_memory"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+  "integration: end-to-end tests against real services (run with PM_E2E=1)",
+]

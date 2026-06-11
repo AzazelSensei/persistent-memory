@@ -1,0 +1,36 @@
+# Credentials — must never enter the repo
+.env
+.env.*
+*.key
+*.pem
+secrets*
+*credential*
+*_secret*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# persistent-memory runtime
+graphify-out/
+.pm-index/
+.index/
+.pm-corpus/
+*.db
+*.sqlite3
+
+# Node / UI build
+node_modules/
+dist/
+
+# OS
+.DS_Store
+
+# personal eval query sets stay local — start from eval/recall_queries.example.json
+eval/recall_queries.json
