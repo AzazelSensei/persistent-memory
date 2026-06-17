@@ -1,22 +1,23 @@
 """SessionStart hook — inject the fixed-budget recall block into new sessions.
 
 Thin signal layer: fetches the project's recall block from the daemon and
-emits it as `additionalContext`, prepending a one-line warning when a critical
-prerequisite (ollama, bge-m3, venv) is missing. Degrades to silence on any
-failure and always exits 0.
+emits it in the host CLI's preferred format, prepending a one-line warning when
+a critical prerequisite (ollama, bge-m3, venv) is missing. Degrades to silence
+on any failure and always exits 0.
 """
 
-import json
 import os
 import sys
 
 import httpx
 
 from persistent_memory.doctor import detect_missing_critical
+from persistent_memory.hooks import common
 from persistent_memory.hooks.common import (
     DAEMON_BASE_URL,
+    detect_host,
+    emit_context,
     is_daemon_healthy,
-    project_name,
     read_hook_payload,
 )
 from persistent_memory.i18n import t
@@ -42,16 +43,6 @@ def fetch_recall_block(project: str) -> str:
     if response.status_code != 200:
         return ""
     return response.json().get("block", "")
-
-
-def _emit(additional_context: str) -> None:
-    payload = {
-        "hookSpecificOutput": {
-            "hookEventName": HOOK_EVENT_NAME,
-            "additionalContext": additional_context,
-        }
-    }
-    sys.stdout.write(json.dumps(payload))
 
 
 def _critical_label(name: str) -> str:
@@ -83,15 +74,17 @@ def _prepend_warning(block: str, warning: str) -> str:
 def main() -> int:
     payload = read_hook_payload()
     cwd = payload.get("cwd") or os.getcwd()
+    host = detect_host(payload)
     warning = _build_warning()
     if not is_daemon_healthy():
-        _emit(_prepend_warning("", warning))
+        emit_context(_prepend_warning("", warning), host=host, event_name=HOOK_EVENT_NAME)
         return 0
+    project, _branch = common.derive_project_and_branch(cwd)
     try:
-        block = fetch_recall_block(project=project_name(cwd))
+        block = fetch_recall_block(project=project)
     except (httpx.HTTPError, OSError, ValueError, RuntimeError):
         block = ""
-    _emit(_prepend_warning(block, warning))
+    emit_context(_prepend_warning(block, warning), host=host, event_name=HOOK_EVENT_NAME)
     return 0
 
 

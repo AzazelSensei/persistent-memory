@@ -34,6 +34,7 @@ class Provenance(BaseModel):
     session: str
     cwd: str
     agent: str
+    branch: str | None = None
 
 
 ID_PATTERN = re.compile(r"^(D|L|P)-\d{4}$")
@@ -95,6 +96,8 @@ FRONTMATTER_FIELD_ORDER = [
     "salience",
 ]
 
+PROVENANCE_FIELD_ORDER = ["session", "cwd", "agent", "branch"]
+
 
 def parse_document(text: str) -> tuple[Record, str]:
     """Parse a record document into (validated frontmatter, markdown body).
@@ -115,9 +118,16 @@ def parse_document(text: str) -> tuple[Record, str]:
     return record, body
 
 
+def _serialize_provenance(prov: dict) -> dict:
+    ordered = {k: prov[k] for k in PROVENANCE_FIELD_ORDER if k in prov and prov[k] is not None}
+    return ordered
+
+
 def serialize_document(record: Record, body: str) -> str:
     """Render a record back to markdown with frontmatter keys in stable order."""
     dumped = record.model_dump(by_alias=True, mode="json")
     ordered = {key: dumped[key] for key in FRONTMATTER_FIELD_ORDER if key in dumped}
+    if "provenance" in ordered and isinstance(ordered["provenance"], dict):
+        ordered["provenance"] = _serialize_provenance(ordered["provenance"])
     front = yaml.safe_dump(ordered, sort_keys=False, allow_unicode=True, default_flow_style=False)
     return f"{FRONTMATTER_DELIMITER}\n{front}{FRONTMATTER_DELIMITER}\n{body.rstrip()}\n"

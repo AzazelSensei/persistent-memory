@@ -92,6 +92,7 @@ class ExtractRequest(BaseModel):
     session_id: str | None = None
     flush: bool | None = None
     reason: str | None = None
+    branch: str | None = None
 
 
 class BodyUpdate(BaseModel):
@@ -121,6 +122,7 @@ class CreateRecordRequest(BaseModel):
     session: str | None = None
     cwd: str | None = None
     agent: str | None = None
+    branch: str | None = None
 
 
 def _start_observer(cfg: DaemonConfig, loop: asyncio.AbstractEventLoop):
@@ -243,6 +245,7 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
             session=payload.session or DEFAULT_SESSION,
             cwd=payload.cwd or DEFAULT_CWD,
             agent=payload.agent or DEFAULT_AGENT,
+            branch=payload.branch or None,
         )
         title_prefix = f"# {payload.title}\n\n"
         if payload.body is not None:
@@ -441,6 +444,7 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
             cwd=body.cwd or "",
             transcript_path=body.transcript_path,
             records_dir=cfg.records_dir,
+            branch=body.branch,
         )
         return JSONResponse(content=result, status_code=HTTP_ACCEPTED)
 

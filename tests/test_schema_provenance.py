@@ -18,4 +18,4 @@ def test_provenance_requires_fields():
 
 def test_provenance_dump_keys():
     p = Provenance(session="S1", cwd="/p", agent="a")
-    assert set(p.model_dump().keys()) == {"session", "cwd", "agent"}
+    assert set(p.model_dump().keys()) == {"session", "cwd", "agent", "branch"}

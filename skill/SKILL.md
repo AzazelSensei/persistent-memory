@@ -6,7 +6,7 @@ trigger: persistent-memory
 
 # persistent-memory
 
-This skill runs AUTOMATICALLY in the background: every 5 messages, decisions (what/why) and mistakes/learnings (what/why/when noticed) are extracted from the accumulated conversation, embedded with local Ollama bge-m3, and at session start the relevant records are injected into context as a fixed ~1200-token recall block. Extraction is source-specific: Codex transcripts are processed by `codex exec --ignore-user-config -m gpt-5.3-codex-spark` with low reasoning effort, while Claude/manual extraction uses `claude -p --model claude-sonnet-4-6 --effort low`. Everything runs LOCALLY; no extra API key is required beyond the user's existing CLI subscription auth. The hook contract is identical in Claude Code and Codex.
+This skill runs AUTOMATICALLY in the background: every 5 messages, decisions (what/why) and mistakes/learnings (what/why/when noticed) are extracted from the accumulated conversation, embedded with local Ollama bge-m3, and at session start the relevant records are injected into context as a fixed ~1200-token recall block. Since extraction is a mechanical task it runs on Sonnet 4.6 (~70% cheaper than Opus, equivalent quality — measured by benchmark). Everything runs LOCALLY; no extra API key is required (headless `claude -p` uses subscription auth). The hook contract is identical in Claude Code, Codex, and Kimi Code CLI.
 
 Triggering, embedding and recall are managed by the daemon (`127.0.0.1:37778`). Hooks only send signals; the heavy work happens in the daemon, debounced. When the daemon is down, hooks pass silently without blocking the session.
 
@@ -16,8 +16,8 @@ Hooks inject memory automatically (PUSH). You can also query memory ACTIVELY via
 
 The agent reading this skill may not be Claude Code — the system is agent-agnostic and can be used in three ways:
 
-1. **Automatic flow (hooks)** — the hook contract is identical in Claude Code and Codex CLI; `install.sh` writes hooks for both tools. Recall injection and extraction triggering happen on their own; the agent does not need to do anything.
-2. **Mid-task query (MCP, the recommended PULL path)** — the `persistent-memory` MCP server is registered with both Claude and Codex; any MCP-capable agent can call `search_memory(query, top_k)`, `get_record(id)`, `list_recent(type, limit)`, `get_record_provenance(id)` directly.
+1. **Automatic flow (hooks)** — the hook contract is identical in Claude Code, Codex CLI, and Kimi Code CLI; `install.sh` writes hooks for all three tools. Recall injection and extraction triggering happen on their own; the agent does not need to do anything.
+2. **Mid-task query (MCP, the recommended PULL path)** — the `persistent-memory` MCP server is registered with Claude, Codex, and Kimi; any MCP-capable agent can call `search_memory(query, top_k)`, `get_record(id)`, `list_recent(type, limit)`, `get_record_provenance(id)` directly.
 3. **Plain HTTP (agents or scripts without hooks/MCP)** — the daemon runs on localhost; read endpoints need no token:
    - `curl 'http://127.0.0.1:37778/api/search?q=QUERY&top_k=5'` — hybrid search
    - `curl 'http://127.0.0.1:37778/api/prompt-recall?q=QUERY&project=PROJECT'` — memory block to append to a prompt
@@ -25,7 +25,7 @@ The agent reading this skill may not be Claude Code — the system is agent-agno
    - `curl 'http://127.0.0.1:37778/api/records/D-0001/raw'` — record body
    - Write endpoints (`/api/extract`, accept/reject, `/api/consolidate`) require the `X-PM-Token` header. The token file lives in the MEMORY repo (the daemon's records root), NOT in the project you are currently working in — discover it via `GET /api/health` (`records_dir` field): `<records_dir>/.pm-index/daemon.token`.
 
-Notes: (a) The slash commands below are Claude Code-specific; on other agents use the HTTP endpoint or direct file write described in the "Writing records" section below. (b) Extraction uses per-source backends: Codex transcripts (`~/.codex/...`) are processed by `codex exec --ignore-user-config -m gpt-5.3-codex-spark -c model_reasoning_effort="low"`; Claude transcripts and manual `/api/extract` calls use `claude -p`. `PM_CODEX_BIN`, `PM_CODEX_EXTRACTION_MODEL` and `PM_CODEX_EXTRACTION_EFFORT` can override the Codex defaults; otherwise the macOS Codex.app CLI is preferred over `codex` from PATH when present. Without the relevant CLI, automatic record creation falls back gracefully (codex→claude if `codex` is missing; both CLIs absent → recall/search keep working in degraded mode, only auto-write is disabled). (c) Records are plain markdown (`docs/decisions/*.md`, `docs/lessons/*.md`); worst case, any agent can read the files directly.
+Notes: (a) The slash commands below are Claude Code-specific; on other agents use the HTTP endpoint or direct file write described in the "Writing records" section below. (b) Extraction uses per-source backends: Codex transcripts (`~/.codex/...`) are processed by `codex exec`; Claude transcripts and manual `/api/extract` calls use `claude -p`. Without the relevant CLI, automatic record creation falls back gracefully (kimi→claude if `kimi` is missing, codex→claude if `codex` is missing; all CLIs absent → recall/search keep working in degraded mode, only auto-write is disabled). (c) Records are plain markdown (`docs/decisions/*.md`, `docs/lessons/*.md`); worst case, any agent can read the files directly.
 
 ## Writing records (any agent)
 

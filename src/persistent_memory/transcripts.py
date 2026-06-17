@@ -11,6 +11,7 @@ it never writes to a transcript.
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECTS_ROOT = Path.home() / ".claude" / "projects"
@@ -24,6 +25,15 @@ TOOL_RESULT_BLOCK_TYPE = "tool_result"
 NOISE_PATH_PREFIXES = ("/tmp", "/private/tmp")
 NOISE_PATH_SUBSTRINGS = ("claude-worktrees", ".claude/worktrees", "claude-mem", "pytest-of-")
 NOISE_DIR_SUBSTRINGS = ("claude-worktrees", "claude-mem-observer-sessions", "pytest-of-")
+
+KIMI_ROOT = Path.home() / ".kimi-code"
+KIMI_WIRE_FILENAME = "wire.jsonl"
+KIMI_USER_MESSAGE_TYPE = "context.append_message"
+KIMI_LOOP_EVENT_TYPE = "context.append_loop_event"
+KIMI_TEXT_PART_TYPE = "text"
+KIMI_THINK_PART_TYPE = "think"
+KIMI_TOOL_CALL_EVENT_TYPE = "tool.call"
+KIMI_TOOL_RESULT_EVENT_TYPE = "tool.result"
 
 TOOL_INPUT_PREVIEW_LEN = 80
 
@@ -128,7 +138,104 @@ def _summarize_tool_use(block: dict) -> str:
     return f"[{name} {' '.join(parts)}]"
 
 
+def _is_kimi_transcript(jsonl_path: Path) -> bool:
+    """Kimi transcripts are named wire.jsonl or live under ~/.kimi-code."""
+    if jsonl_path.name == KIMI_WIRE_FILENAME:
+        return True
+    try:
+        if jsonl_path.resolve().is_relative_to(KIMI_ROOT.resolve()):
+            return True
+    except (OSError, ValueError):
+        pass
+    return False
+
+
+def _kimi_time_to_iso(time_ms: int | None) -> str | None:
+    if time_ms is None:
+        return None
+    try:
+        return datetime.fromtimestamp(time_ms / 1000.0, tz=timezone.utc).isoformat()
+    except (OSError, ValueError, TypeError, OverflowError):
+        return None
+
+
+def _extract_kimi_text(content) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    texts: list[str] = []
+    for part in content:
+        if isinstance(part, dict) and part.get("type") == KIMI_TEXT_PART_TYPE:
+            texts.append(str(part.get("text") or ""))
+    return "\n".join(t for t in texts if t).strip()
+
+
+def _summarize_kimi_tool_call(event: dict) -> str:
+    name = event.get("name") or "tool"
+    args = event.get("args")
+    if not isinstance(args, dict) or not args:
+        return f"[{name}]"
+    parts = []
+    for key, value in args.items():
+        preview = str(value)
+        if len(preview) > TOOL_INPUT_PREVIEW_LEN:
+            preview = preview[:TOOL_INPUT_PREVIEW_LEN] + "…"
+        parts.append(f"{key}={preview}")
+    return f"[{name} {' '.join(parts)}]"
+
+
+def _summarize_kimi_tool_result(event: dict) -> str:
+    tool_call_id = event.get("toolCallId") or event.get("parentUuid") or "?"
+    return f"[tool_result {tool_call_id}]"
+
+
+def _read_kimi_transcript(jsonl_path: Path) -> list[Message]:
+    messages: list[Message] = []
+    for obj in _read_jsonl_lines(jsonl_path):
+        obj_type = obj.get("type")
+        time_ms = obj.get("time")
+        timestamp = _kimi_time_to_iso(time_ms)
+        if obj_type == KIMI_USER_MESSAGE_TYPE:
+            message = obj.get("message")
+            if not isinstance(message, dict):
+                continue
+            origin = message.get("origin") or {}
+            if isinstance(origin, dict) and origin.get("kind") != "user":
+                continue
+            role = message.get("role")
+            if role != "user":
+                continue
+            text = _extract_kimi_text(message.get("content"))
+            if text:
+                messages.append(Message(role="user", text=text, timestamp=timestamp, is_tool=False))
+        elif obj_type == KIMI_LOOP_EVENT_TYPE:
+            event = obj.get("event") or {}
+            if not isinstance(event, dict):
+                continue
+            event_type = event.get("type")
+            if event_type == "content.part":
+                part = event.get("part") or {}
+                if not isinstance(part, dict):
+                    continue
+                part_type = part.get("type")
+                if part_type != KIMI_TEXT_PART_TYPE:
+                    continue
+                text = str(part.get("text") or "").strip()
+                if text:
+                    messages.append(Message(role="assistant", text=text, timestamp=timestamp, is_tool=False))
+            elif event_type == KIMI_TOOL_CALL_EVENT_TYPE:
+                text = _summarize_kimi_tool_call(event)
+                messages.append(Message(role="assistant", text=text, timestamp=timestamp, is_tool=True))
+            elif event_type == KIMI_TOOL_RESULT_EVENT_TYPE:
+                text = _summarize_kimi_tool_result(event)
+                messages.append(Message(role="user", text=text, timestamp=timestamp, is_tool=True))
+    return messages
+
+
 def read_transcript(jsonl_path: Path) -> list[Message]:
+    if _is_kimi_transcript(jsonl_path):
+        return _read_kimi_transcript(jsonl_path)
     messages: list[Message] = []
     for obj in _read_jsonl_lines(jsonl_path):
         if obj.get("type") not in MESSAGE_TYPES:

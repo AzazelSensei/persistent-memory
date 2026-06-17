@@ -16,7 +16,8 @@
 #
 # Usage: ./install.sh [--dry-run]
 # Env flags: PM_TARGET_HOME (target home dir), PM_SKIP_DOCTOR=1, PM_SKIP_VENV=1,
-#   PM_SKIP_LAUNCHD=1, PM_SKIP_CODEX=1, PM_SKIP_MCP=1, PM_INSTALL_CODEX=1 (force Codex step).
+#   PM_SKIP_LAUNCHD=1, PM_SKIP_CODEX=1, PM_SKIP_MCP=1, PM_INSTALL_CODEX=1 (force Codex step),
+#   PM_SKIP_KIMI=1, PM_INSTALL_KIMI=1 (force Kimi step).
 set -euo pipefail
 
 DRY_RUN=0
@@ -33,6 +34,10 @@ VENV_DIR="$REPO_ROOT/.venv"
 CODEX_DIR="$TARGET_HOME/.codex"
 CODEX_HOOKS_FILE="$CODEX_DIR/hooks.json"
 CODEX_SKILL_DEST="$CODEX_DIR/skills/persistent-memory"
+KIMI_DIR="$TARGET_HOME/.kimi-code"
+KIMI_CONFIG="$KIMI_DIR/config.toml"
+KIMI_MCP="$KIMI_DIR/mcp.json"
+KIMI_SKILL_DEST="$KIMI_DIR/skills/persistent-memory"
 
 HOOK_EVENTS=("UserPromptSubmit" "Stop" "PreCompact" "SessionStart" "PreToolUse")
 
@@ -53,12 +58,12 @@ run_doctor() {
 
 create_venv() {
   if [[ $DRY_RUN -eq 1 ]]; then
-    plan "create .venv at $VENV_DIR and pip install -e .[daemon,mcp]"
+    plan "create .venv at $VENV_DIR and pip install -e .[daemon,mcp] tomli_w"
     return
   fi
   [[ "${PM_SKIP_VENV:-0}" == "1" ]] && return
   [[ -d "$VENV_DIR" ]] || python3.12 -m venv "$VENV_DIR"
-  "$VENV_DIR/bin/pip" install -e "$REPO_ROOT[daemon,mcp]"
+  "$VENV_DIR/bin/pip" install -e "$REPO_ROOT[daemon,mcp]" tomli_w
 }
 
 install_skill() {
@@ -153,6 +158,106 @@ register_mcp() {
   fi
 }
 
+should_install_kimi() {
+  [[ "${PM_SKIP_KIMI:-0}" == "1" ]] && return 1
+  [[ "${PM_INSTALL_KIMI:-0}" == "1" ]] && return 0
+  command -v kimi >/dev/null 2>&1 && return 0
+  [[ -d "$KIMI_DIR" ]] && return 0
+  return 1
+}
+
+install_kimi_skill() {
+  if [[ $DRY_RUN -eq 1 ]]; then
+    plan "copy $REPO_ROOT/skill/SKILL.md to $KIMI_SKILL_DEST/SKILL.md (.kimi-code/skills/persistent-memory)"
+    return
+  fi
+  mkdir -p "$KIMI_SKILL_DEST"
+  cp "$REPO_ROOT/skill/SKILL.md" "$KIMI_SKILL_DEST/SKILL.md"
+}
+
+register_kimi_hooks() {
+  if [[ $DRY_RUN -eq 1 ]]; then
+    for event in "${HOOK_EVENTS[@]}"; do
+      plan "merge kimi hook $event into $KIMI_CONFIG"
+    done
+    return
+  fi
+  mkdir -p "$KIMI_DIR"
+  "$VENV_DIR/bin/python" - "$KIMI_CONFIG" "$VENV_DIR" <<'PYEOF'
+import json
+import os
+import sys
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover
+    import tomli as tomllib
+
+import tomli_w
+
+config_path = sys.argv[1]
+venv = sys.argv[2]
+
+ours = [
+    {"event": "UserPromptSubmit", "command": f"{venv}/bin/python -m persistent_memory.hooks.user_prompt_submit"},
+    {"event": "Stop", "command": f"{venv}/bin/python -m persistent_memory.hooks.stop_or_session_end"},
+    {"event": "PreCompact", "command": f"{venv}/bin/python -m persistent_memory.hooks.pre_compact"},
+    {"event": "SessionStart", "command": f"{venv}/bin/python -m persistent_memory.hooks.session_start"},
+    {"event": "PreToolUse", "matcher": "Agent|Task", "command": f"{venv}/bin/python -m persistent_memory.hooks.pre_tool_use", "timeout": 5},
+]
+our_cmds = {h["command"] for h in ours}
+
+try:
+    with open(config_path, "rb") as f:
+        data = tomllib.load(f)
+except FileNotFoundError:
+    data = {}
+
+hooks = [h for h in data.get("hooks", []) if not (isinstance(h, dict) and h.get("command") in our_cmds)]
+hooks.extend(ours)
+data["hooks"] = hooks
+
+with open(config_path, "wb") as f:
+    tomli_w.dump(data, f)
+PYEOF
+  say "Kimi hooks written to $KIMI_CONFIG"
+}
+
+register_kimi_mcp() {
+  [[ "${PM_SKIP_MCP:-0}" == "1" ]] && return
+  local cmd="$VENV_DIR/bin/python"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    plan "register MCP server 'persistent-memory' ($cmd -m persistent_memory.mcp_server) in $KIMI_MCP"
+    return
+  fi
+  mkdir -p "$KIMI_DIR"
+  "$VENV_DIR/bin/python" - "$KIMI_MCP" "$cmd" <<'PYEOF'
+import json
+import os
+import sys
+
+mcp_path = sys.argv[1]
+cmd = sys.argv[2]
+
+try:
+    with open(mcp_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    data = {}
+
+servers = data.setdefault("mcpServers", {})
+servers["persistent-memory"] = {
+    "command": cmd,
+    "args": ["-m", "persistent_memory.mcp_server"],
+}
+
+with open(mcp_path, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+PYEOF
+  say "Kimi MCP 'persistent-memory' registered in $KIMI_MCP"
+}
+
 _lang_subtag() {
   echo "$1" | sed 's/[._@-].*//' | tr '[:upper:]' '[:lower:]'
 }
@@ -205,6 +310,11 @@ create_venv
 install_skill
 register_hooks
 register_codex_hooks
+if should_install_kimi; then
+  install_kimi_skill
+  register_kimi_hooks
+  register_kimi_mcp
+fi
 register_mcp
 install_launchd
 say "Done."

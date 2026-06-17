@@ -197,6 +197,7 @@ def _build_record(record, body: str, title: str) -> dict:
         "title": title,
         "status": _ui_status(record.status.value),
         "project": record.project,
+        "branch": record.provenance.branch or None,
         "date": record.date.isoformat(),
         "importance": round(float(record.salience), 2),
         "tags": list(record.tags),
