@@ -29,6 +29,7 @@ CLAUDE_DIR="$TARGET_HOME/.claude"
 SKILL_DEST="$CLAUDE_DIR/skills/persistent-memory"
 SETTINGS_FILE="$CLAUDE_DIR/settings.json"
 LAUNCH_AGENTS_DIR="$TARGET_HOME/Library/LaunchAgents"
+LOGS_DIR="$TARGET_HOME/Library/Logs/persistent-memory"
 PLIST_DEST="$LAUNCH_AGENTS_DIR/com.persistent-memory.daemon.plist"
 VENV_DIR="$REPO_ROOT/.venv"
 CODEX_DIR="$TARGET_HOME/.codex"
@@ -292,11 +293,12 @@ install_launchd() {
   fi
   [[ "${PM_SKIP_LAUNCHD:-0}" == "1" ]] && return
   mkdir -p "$LAUNCH_AGENTS_DIR"
-  PYTHONPATH="$REPO_ROOT/src" "$VENV_DIR/bin/python" - "$VENV_DIR/bin/python" "$REPO_ROOT" "$install_lang" <<'PYEOF' > "$PLIST_DEST"
+  mkdir -p "$LOGS_DIR"
+  PYTHONPATH="$REPO_ROOT/src" "$VENV_DIR/bin/python" - "$VENV_DIR/bin/python" "$REPO_ROOT" "$install_lang" "$TARGET_HOME" <<'PYEOF' > "$PLIST_DEST"
 import sys
 from persistent_memory.daemon.launch_agent import build_launch_agent_plist
-python_bin, working_dir, lang = sys.argv[1], sys.argv[2], sys.argv[3]
-print(build_launch_agent_plist(python_bin=python_bin, working_dir=working_dir, lang=lang if lang else None), end="")
+python_bin, working_dir, lang, home_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+print(build_launch_agent_plist(python_bin=python_bin, working_dir=working_dir, lang=lang if lang else None, home_dir=home_dir), end="")
 PYEOF
   launchctl unload "$PLIST_DEST" 2>/dev/null || true
   launchctl bootout "gui/$(id -u)/com.persistent-memory.daemon" 2>/dev/null || true
