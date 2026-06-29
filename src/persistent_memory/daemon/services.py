@@ -814,16 +814,23 @@ def project_detail(*, project: str, projects_root: Path, records_dir: Path) -> d
 
 
 CODEX_ROOT = Path.home() / ".codex"
+KIMI_ROOT = Path.home() / ".kimi-code"
 
 
 def _extraction_backend_for(transcript_path: "Path | str | None") -> str:
-    """Return "codex" if transcript_path is under ~/.codex, else "claude"."""
+    """Return host-specific backend for the transcript path.
+
+    Codex transcripts live under ~/.codex, Kimi transcripts under ~/.kimi-code;
+    everything else defaults to the Claude backend.
+    """
     if transcript_path is None:
         return "claude"
     try:
         resolved = Path(transcript_path).resolve()
         if resolved.is_relative_to(CODEX_ROOT.resolve()):
             return "codex"
+        if resolved.is_relative_to(KIMI_ROOT.resolve()):
+            return "kimi"
     except (TypeError, ValueError):
         pass
     return "claude"
@@ -885,13 +892,15 @@ def _resolve_claude_bin(env: dict) -> str:
 
 
 def _resolve_codex_bin(env: dict) -> str | None:
-    from persistent_memory.extraction_prompt import resolve_codex_bin
+    from persistent_memory.extraction_prompt import CODEX_BIN
 
-    configured = resolve_codex_bin()
-    configured_path = Path(configured)
-    if configured_path.is_absolute():
-        return str(configured_path) if configured_path.exists() else None
-    return shutil.which(configured, path=env.get("PATH"))
+    return shutil.which(CODEX_BIN, path=env.get("PATH"))
+
+
+def _resolve_kimi_bin(env: dict) -> str | None:
+    from persistent_memory.extraction_prompt import KIMI_BIN
+
+    return shutil.which(KIMI_BIN, path=env.get("PATH"))
 
 
 def _index_subdir(records_dir: Path | None, name: str) -> Path:
@@ -933,6 +942,7 @@ TRANSCRIPT_ROOTS_ENV = "PM_TRANSCRIPT_ROOTS"
 DEFAULT_TRANSCRIPT_ROOTS = (
     Path.home() / ".claude" / "projects",
     Path.home() / ".codex",
+    Path.home() / ".kimi-code",
 )
 CWD_ROOTS_ENV = "PM_CWD_ROOTS"
 DEFAULT_CWD_ROOTS = (Path.home(),)
@@ -1050,7 +1060,11 @@ def _build_argv_for_backend(
     missing so extraction never crashes due to a missing CLI tool.
     """
     from persistent_memory.daemon.token import default_records_dir
-    from persistent_memory.extraction_prompt import build_codex_extraction_argv, build_extraction_argv
+    from persistent_memory.extraction_prompt import (
+        build_codex_extraction_argv,
+        build_extraction_argv,
+        build_kimi_extraction_argv,
+    )
 
     if backend == "codex":
         codex_bin = _resolve_codex_bin(env)
@@ -1062,6 +1076,15 @@ def _build_argv_for_backend(
             rdir = Path(records_dir) if records_dir else default_records_dir()
             argv = build_codex_extraction_argv(prompt=prompt, records_dir=rdir)
             return argv, codex_bin
+    if backend == "kimi":
+        kimi_bin = _resolve_kimi_bin(env)
+        if kimi_bin is None:
+            logger.warning(
+                "kimi binary not found; falling back to claude backend for this extraction"
+            )
+        else:
+            argv = build_kimi_extraction_argv(prompt=prompt, cwd=cwd)
+            return argv, kimi_bin
     argv = build_extraction_argv(prompt=prompt, cwd=cwd)
     claude_bin = _resolve_claude_bin(env)
     return argv, claude_bin

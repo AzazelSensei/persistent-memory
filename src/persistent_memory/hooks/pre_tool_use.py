@@ -28,9 +28,11 @@ PROMPT_RECALL_ENDPOINT = "/api/prompt-recall"
 
 _DENY_REASON = (
     "Model-guard: you must supply an explicit `model` parameter when dispatching "
-    "a subagent. Rules: mechanical implementation / translation / cleanup / "
-    "spec-driven TDD / review → \"sonnet\"; read-only scan / inventory / "
-    "exploration → \"haiku\"; flagship only as a deliberate choice. "
+    "a subagent. Choose per the task (decide opus-vs-sonnet consciously — do NOT "
+    "reflexively default to sonnet): genuine reasoning (architecture / hard debug / "
+    "deep or adversarial analysis / complex synthesis / planning) → \"opus\"; "
+    "mechanical implementation / translation / cleanup / spec-driven TDD / review "
+    "→ \"sonnet\"; read-only scan / inventory / exploration → \"haiku\". "
     "Re-dispatch the same call with `model` set. "
     "Disable this guard: PM_DISABLE_MODEL_GUARD=1."
 )

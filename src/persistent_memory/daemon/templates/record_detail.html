@@ -17,7 +17,11 @@
   <div class="headrow">
     <span class="chip {{ detail.type }}">{{ detail.type }}</span>
     <span class="badge {{ detail.status }}">{{ detail.status }}</span>
-    {% if detail.project %}<span class="chip project">{{ detail.project }}</span>{% endif %}
+    {% if detail.project %}
+      <span class="chip project">
+        {{ detail.project }}{% if detail.provenance and detail.provenance.branch %} · {{ detail.provenance.branch }}{% endif %}
+      </span>
+    {% endif %}
   </div>
   <h1>{{ detail.title }}</h1>
   <div class="sub"><span class="rec-id">{{ detail.id }}</span> · {{ detail.date }}</div>

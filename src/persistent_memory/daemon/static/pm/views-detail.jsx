@@ -157,7 +157,7 @@
                 <div className="d-meta">
                   <StatusPill status={status} />
                   <KindTag kind={rec.kind} />
-                  <span className="d-id">{rec.id} · {rec.project}</span>
+                  <span className="d-id">{rec.id} · {rec.project}{rec.branch ? " · " + rec.branch : ""}</span>
                 </div>
                 <h1 className="d-h1">{rec.title}</h1>
                 <div className="d-tags">{rec.tags.map((t) => <span className="pm-tag" key={t}>{t}</span>)}</div>

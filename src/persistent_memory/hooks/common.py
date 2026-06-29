@@ -1,4 +1,4 @@
-"""Shared plumbing for the Claude Code hook entrypoints.
+"""Shared plumbing for the Claude Code / Codex / Kimi hook entrypoints.
 
 Hooks are a thin signal layer: they parse the hook payload from stdin, keep a
 tiny per-project message counter on disk, and fire short-timeout HTTP signals
@@ -7,9 +7,11 @@ the daemon; a hook must never block or fail the host session, so every network
 error degrades to a no-op and the process exits 0.
 """
 
+import enum
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -24,6 +26,89 @@ HOOK_HTTP_TIMEOUT_SECONDS = 2.0
 PROJECT_KEY_LENGTH = 16
 TOKEN_HEADER = "X-PM-Token"
 DEFAULT_STATE_DIR = Path.home() / ".claude" / "persistent-memory" / "hook-state"
+
+
+class Host(enum.Enum):
+    CLAUDE = "claude"
+    CODEX = "codex"
+    KIMI = "kimi"
+
+
+def detect_host(payload: dict) -> Host:
+    """Identify the host CLI from the hook payload.
+
+    Kimi Code CLI uses snake_case keys and exposes ``session_dir``; Claude and
+    Codex share the same JSON envelope, so they both map to ``Host.CLAUDE``.
+    """
+    if payload.get("session_dir"):
+        return Host.KIMI
+    return Host.CLAUDE
+
+
+def state_dir_for_host(host: Host) -> Path:
+    """Return the per-host state directory for message counters."""
+    if host is Host.KIMI:
+        return Path.home() / ".kimi-code" / "persistent-memory" / "hook-state"
+    return DEFAULT_STATE_DIR
+
+
+def emit_context(text: str, host: Host, event_name: str) -> None:
+    """Emit a recall/context block in the format expected by the host CLI.
+
+    - Claude/Codex: JSON envelope with ``hookSpecificOutput.additionalContext``.
+    - Kimi: plain stdout text (the runner appends it to the agent context).
+    """
+    if host is Host.KIMI:
+        sys.stdout.write(text)
+        return
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": event_name,
+            "additionalContext": text,
+        }
+    }
+    sys.stdout.write(json.dumps(payload))
+
+
+def extract_prompt_text(payload: dict) -> str:
+    """Extract the user's prompt text from a host-specific payload.
+
+    Kimi passes ``prompt`` as a list of ContentParts; Claude/Codex pass a string
+    or a ``message`` object.
+    """
+    prompt = payload.get("prompt")
+    if isinstance(prompt, list):
+        texts = [
+            str(part.get("text", ""))
+            for part in prompt
+            if isinstance(part, dict) and part.get("type") == "text"
+        ]
+        return " ".join(text for text in texts if text).strip()
+    if isinstance(prompt, str):
+        return prompt.strip()
+    message = payload.get("message")
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return ""
+
+
+def transcript_path_from_payload(payload: dict) -> str | None:
+    """Return a transcript path for the daemon, if one can be determined.
+
+    Kimi exposes ``session_dir``; the active agent wire log lives at
+    ``<session_dir>/agents/main/wire.jsonl``.
+    """
+    explicit = payload.get("transcript_path")
+    if explicit:
+        return explicit
+    session_dir = payload.get("session_dir")
+    if session_dir:
+        path = Path(session_dir) / "agents" / "main" / "wire.jsonl"
+        if path.is_file():
+            return str(path)
+    return None
 
 
 def read_hook_payload() -> dict:
@@ -47,6 +132,71 @@ def build_project_key(cwd: str) -> str:
 def project_name(cwd: str) -> str:
     name = Path(cwd or "").name
     return name or "unknown"
+
+
+def _git_run(args: list[str], cwd: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", cwd, *args],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _current_branch(cwd: str) -> str | None:
+    return _git_run(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+
+
+def _is_worktree_root(cwd: str) -> bool:
+    git_dir = _git_run(["rev-parse", "--git-dir"], cwd)
+    common_dir = _git_run(["rev-parse", "--git-common-dir"], cwd)
+    if not git_dir or not common_dir:
+        return False
+    if git_dir == common_dir:
+        return False
+    toplevel = _git_run(["rev-parse", "--show-toplevel"], cwd)
+    if not toplevel:
+        return False
+    return Path(cwd).resolve() == Path(toplevel).resolve()
+
+
+def _main_repo_name_from_worktree(cwd: str) -> str | None:
+    common_dir = _git_run(["rev-parse", "--git-common-dir"], cwd)
+    if not common_dir:
+        return None
+    common_path = Path(common_dir)
+    if not common_path.is_absolute():
+        common_path = (Path(cwd) / common_path).resolve()
+    return common_path.parent.name or None
+
+
+def derive_project_and_branch(cwd: str) -> tuple[str, str | None]:
+    """Derive (project_name, branch) from a working directory.
+
+    Rules:
+    - If cwd is the root of a git linked worktree: project = main repo name,
+      branch = current worktree branch.
+    - Any other case: project = basename(cwd) (existing behaviour preserved),
+      branch = current git branch if inside a git repo, else None.
+    - git failures are silent: returns (basename, None).
+    """
+    if not cwd:
+        return "unknown", None
+
+    branch = _current_branch(cwd)
+
+    if branch is not None and _is_worktree_root(cwd):
+        main_name = _main_repo_name_from_worktree(cwd)
+        project = main_name if main_name else project_name(cwd)
+        return project, branch
+
+    return project_name(cwd), branch
 
 
 def _state_path(project_key: str, state_dir: Path) -> Path:

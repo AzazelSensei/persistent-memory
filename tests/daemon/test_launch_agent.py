@@ -1,4 +1,5 @@
 import plistlib
+from pathlib import Path
 
 from persistent_memory.daemon.launch_agent import (
     LAUNCH_AGENT_LABEL,
@@ -63,14 +64,32 @@ def test_plist_is_valid_and_has_label():
     assert parsed["ThrottleInterval"] >= 10
 
 
-def test_plist_captures_daemon_logs_under_working_dir():
+def test_plist_captures_daemon_logs_under_user_logs_dir():
     raw = build_launch_agent_plist(
         python_bin="/Users/x/.venv/bin/python",
         working_dir="/Users/x/proj",
     )
     parsed = plistlib.loads(raw.encode("utf-8"))
-    assert parsed["StandardErrorPath"].startswith("/Users/x/proj/")
-    assert parsed["StandardOutPath"].startswith("/Users/x/proj/")
+    log_dir = Path.home() / "Library/Logs/persistent-memory"
+    assert parsed["StandardErrorPath"] == str(log_dir / "daemon.err.log")
+    assert parsed["StandardOutPath"] == str(log_dir / "daemon.out.log")
+
+
+def test_plist_can_capture_daemon_logs_under_target_home():
+    raw = build_launch_agent_plist(
+        python_bin="/Users/x/.venv/bin/python",
+        working_dir="/Users/x/proj",
+        home_dir="/Users/target",
+    )
+    parsed = plistlib.loads(raw.encode("utf-8"))
+    assert (
+        parsed["StandardErrorPath"]
+        == "/Users/target/Library/Logs/persistent-memory/daemon.err.log"
+    )
+    assert (
+        parsed["StandardOutPath"]
+        == "/Users/target/Library/Logs/persistent-memory/daemon.out.log"
+    )
 
 
 def test_plist_program_args_run_uvicorn_on_loopback():
