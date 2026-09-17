@@ -6,7 +6,7 @@ Ranking pipeline (see ``search``):
    query-side synonym expansion), dense cosine similarity over local
    embeddings, and — when a graph signal is available — records related
    to the top BM25 hit.
-2. Sources are fused with Reciprocal Rank Fusion (RRF, k=60) and the
+2. Sources are fused with Reciprocal Rank Fusion (RRF, k=5) and the
    fused scores are min-max normalized into a relevance term.
 3. Final score = 0.90 * relevance + 0.07 * salience + 0.03 * recency.
    The weights were chosen by measurement against the recall eval set
@@ -55,8 +55,7 @@ STATUS_SUPERSEDED = "superseded"
 STATUS_REVERTED = "reverted-as-mistake"
 DAMPENED_STATUSES = {STATUS_SUPERSEDED, STATUS_REVERTED}
 SUPERSEDED_DAMP_FACTOR = 0.3
-# Canonical RRF smoothing constant (Cormack et al., 2009).
-RRF_K = 60
+RRF_K = 5
 # Weights measured on eval/recall_eval.py — retune against the eval set,
 # not by intuition (see module docstring).
 RELEVANCE_WEIGHT = 0.90
