@@ -30,7 +30,7 @@ Hook / MCP  →  yerel daemon  →  Markdown kayıtları + yerel vektör index'i
 ```
 
 - **Yakalama:** hook'lar daemon'a sinyal verir; daemon transcript'i dilimler ve eşleşen yapılandırılmış CLI extraction backend'ini çalıştırır. Backend yoksa yakalama atlanır; mevcut kayıtlar aranabilir ve recall edilebilir kalır.
-- **Recall:** anahtar kelime, vektör, güncellik ve önem ağırlıklı hibrit getirme, sabit bütçede kompakt bir hafıza bloğu üretir.
+- **Recall:** her prompt'ta anahtar kelime, vektör, güncellik ve önem ağırlıklı hibrit getirme aktif projeye öncelik verir ve en fazla üç kayıt döndürür; diğer projelerden uygun kayıtlar yalnız kullanılmayan yerleri doldurur. 700 tahmini-token bütçesi daha az kayıt üretebilir.
 - **Council:** yapılandırılmış üyeler konuya, ilgili recall'a ve append-only board'a erişir. İlk tur bağımsız ve paraleldir; sonraki turlar üyelerin board'a itiraz edebilmesi için sıralı çalışır. Sözcü, insanın kabul veya reddedebileceği `proposed` karar kaydını sentezler.
 
 Council; mimari, trade-off veya ürün yönü gibi bağımsız bakışların değer kattığı önemli sorular içindir. Rutin düzenlemeler veya tek bir kolay doğrulanabilir cevabı olan sorular için uygun değildir. Başarısız ya da atlanmış üyelerle bitebilir; doğru bir uzlaşıyı garanti etmez.

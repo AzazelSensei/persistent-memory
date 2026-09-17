@@ -466,6 +466,7 @@ def _search_for_prompt_recall(query: str, *, records_dir: Path, project: str | N
 
     from persistent_memory.retriever import search
 
+    limit = max(0, min(top_k, PROMPT_RECALL_TOP_K))
     fingerprint = _records_fingerprint_singleflight(records_dir)
     views = _collect_embed_views(records_dir, fingerprint)
     if not views:
@@ -475,12 +476,13 @@ def _search_for_prompt_recall(query: str, *, records_dir: Path, project: str | N
     demote = _build_demote_ids(records_dir, fingerprint)
     primary = search(
         query, project=project, records=views, embedder=adapter, now=now,
-        top_k=top_k, demote_ids=demote,
+        top_k=limit, demote_ids=demote,
     )
-    if project is None:
+    if project is None or len(primary) >= limit:
         return primary
     seen = {cand.record.id for cand in primary}
-    return primary + _cross_project_hits(query, views, adapter, now, project, seen, demote)
+    cross = _cross_project_hits(query, views, adapter, now, project, seen, demote)
+    return (primary + cross)[:limit]
 
 
 def _format_prompt_recall_block(

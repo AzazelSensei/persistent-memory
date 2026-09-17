@@ -30,7 +30,7 @@ Hooks / MCP  →  local daemon  →  Markdown records + local vector index
 ```
 
 - **Capture:** hooks signal the daemon, which slices a transcript and invokes its matching configured CLI extraction backend. If that backend is unavailable, capture is skipped; existing records remain searchable and recallable.
-- **Recall:** hybrid keyword, vector, recency, and salience retrieval produces a compact memory block within a fixed budget.
+- **Recall:** on each prompt, hybrid keyword, vector, recency, and salience retrieval prefers the active project and returns at most three records; qualifying records from other projects fill only unused slots. The 700 estimated-token budget can yield fewer records.
 - **Council:** configured members receive the topic, relevant recall, and the append-only board. Round one runs independently in parallel; later rounds run in sequence so members can challenge the board. A spokesperson synthesizes a `proposed` decision record for human acceptance or rejection.
 
 Council is for consequential questions where independent perspectives help: architecture, trade-offs, or product direction. It is a poor fit for routine edits or questions with one readily verifiable answer. It can finish with failed or skipped members and does not guarantee a correct consensus.
