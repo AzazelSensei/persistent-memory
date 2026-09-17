@@ -75,7 +75,7 @@ def test_pm_payload_json_contains_branch(tmp_path):
     cfg = DaemonConfig(records_dir=tmp_path)
     raw = dashboard_data.pm_payload_json(cfg)
     data = json.loads(raw)
-    decision = next(r for r in data["decisions"] if r["id"] == "D-0003")
+    decision = next(r for r in data["all"] if r["id"] == "D-0003")
     assert decision["branch"] == "main"
 
 
@@ -86,7 +86,7 @@ def test_pm_payload_json_no_branch_field_is_none(tmp_path):
     cfg = DaemonConfig(records_dir=tmp_path)
     raw = dashboard_data.pm_payload_json(cfg)
     data = json.loads(raw)
-    decision = next(r for r in data["decisions"] if r["id"] == "D-0004")
+    decision = next(r for r in data["all"] if r["id"] == "D-0004")
     assert decision.get("branch") is None
 
 

@@ -62,3 +62,20 @@ def test_app_page_english_default_does_not_include_turkish_values(tmp_path):
     i18n_data = _parse_i18n(resp.text)
     assert "Onayla" not in i18n_data.values()
     assert "Reddet" not in i18n_data.values()
+
+
+def test_agent_asset_strings_exist_in_both_languages():
+    from persistent_memory import i18n
+
+    keys = [
+        "ui.nav.agents",
+        "ui.agents.heading",
+        "ui.agents.edit",
+        "ui.agents.save",
+        "ui.agents.saved",
+        "ui.agents.unsaved_warning",
+        "ui.agents.empty",
+    ]
+    for key in keys:
+        assert i18n.MESSAGES[key]["en"]
+        assert i18n.MESSAGES[key]["tr"]

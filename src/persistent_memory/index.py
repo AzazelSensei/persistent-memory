@@ -16,13 +16,76 @@ from .lint import INDEX_FILENAME, LoadedRecord
 from .schema import RecordType, parse_document
 
 HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
+TITLE_HEADING_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
+ORDERED_ITEM_RE = re.compile(r"^\d+[.)]\s")
+PROSE_SKIP_PREFIXES = ("#", ">", "-", "*", "|", "`", "=", "~", "<!--", "![", "[")
+MAX_DERIVED_TITLE_CHARS = 120
+SECTION_LABEL_PREFIXES = (
+    "context",
+    "bağlam",
+    "decision",
+    "karar",
+    "rationale",
+    "gerekçe",
+    "outcome",
+    "sonuç",
+    "source",
+    "kaynak",
+    "what happened",
+    "ne oldu",
+    "why",
+    "neden",
+    "when discovered",
+    "ne zaman",
+    "general rule",
+    "genel kural",
+    "lesson",
+    "evidence",
+    "kök neden",
+    "nasıl uygulanır",
+    "doğrulama",
+)
+
+
+def _is_section_label(heading: str) -> bool:
+    """True when the heading is a canonical body section, not a real title.
+
+    Turkish dotless-i is folded explicitly: `str.casefold` maps `I` to `i`,
+    so an all-caps `NASIL UYGULANIR` would otherwise miss its prefix.
+    """
+    normalized = heading.replace("I", "ı").replace("İ", "i").casefold().strip()
+    return normalized.startswith(SECTION_LABEL_PREFIXES)
+
+
+def _first_prose_line(body: str) -> str:
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(PROSE_SKIP_PREFIXES):
+            continue
+        if ORDERED_ITEM_RE.match(stripped):
+            continue
+        return stripped[:MAX_DERIVED_TITLE_CHARS]
+    return ""
 
 
 def _extract_title(loaded: LoadedRecord) -> str:
+    """Title for catalog rows and recall lines.
+
+    An H1 is always the author's title and wins outright. Only when a record
+    has no H1 does the first heading get inspected: if it is a section label
+    ("## Context / Problem") it would spend a recall slot saying nothing, so
+    the opening prose line is used instead.
+    """
+    title = TITLE_HEADING_RE.search(loaded.body)
+    if title:
+        return title.group(1)
     match = HEADING_RE.search(loaded.body)
-    if match:
-        return match.group(1)
-    return loaded.path.stem
+    if not match:
+        return loaded.path.stem
+    heading = match.group(1)
+    if not _is_section_label(heading):
+        return heading
+    return _first_prose_line(loaded.body) or loaded.path.stem
 
 
 def format_index_row(loaded: LoadedRecord) -> str:

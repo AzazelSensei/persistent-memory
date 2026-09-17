@@ -143,8 +143,9 @@
           {rows.length === 0 && <div className="pm-empty">No records match the filter.</div>}
           {rows.map((r) => {
             const st = liveStatus(r);
+            const isLiveNew = window.__pmLiveFlash && window.__pmLiveFlash.has(r.id);
             return (
-              <div key={r.id} className={"l-row" + (st === "superseded" ? " sel-sup" : "")} onClick={() => nav("detail", { id: r.id })}>
+              <div key={r.id} className={"l-row" + (st === "superseded" ? " sel-sup" : "") + (isLiveNew ? " l-row-new" : "")} onClick={() => nav("detail", { id: r.id })}>
                 <span className={"l-cb" + (selected[r.id] ? " on" : "")} onClick={(e) => toggleSel(r.id, e)}>
                   {selected[r.id] && <Icon name="decision" size={11} sw={2.4} />}
                 </span>
@@ -176,6 +177,25 @@
     const [done, setDone] = useState(0);
 
     const rec = queue[idx];
+
+    const [sections, setSections] = useState(null);
+    const [sectionsErr, setSectionsErr] = useState(false);
+    useEffect(() => {
+      if (!rec) return undefined;
+      let alive = true;
+      setSections(null);
+      setSectionsErr(false);
+      if (window.PM_API && window.PM_API.fetchRecordSections) {
+        window.PM_API.fetchRecordSections(rec.id).then((d) => {
+          if (!alive) return;
+          if (d && Array.isArray(d.sections)) setSections(d.sections);
+          else setSectionsErr(true);
+        });
+      } else {
+        setSectionsErr(true);
+      }
+      return () => { alive = false; };
+    }, [rec && rec.id]);
 
     const advance = () => setIdx((i) => i + 1);
     const act = (status) => { if (!rec) return; onAction(rec.id, status); setDone((d) => d + 1); advance(); };
@@ -222,7 +242,11 @@
           <h2>{rec.title}</h2>
           <div className="q-tags">{rec.tags.map((t) => <span className="pm-tag" key={t}>{t}</span>)}</div>
           <div className="q-secs">
-            {rec.sections.map((sec) => (
+            {sectionsErr ? (
+              <div className="q-sec"><p style={{ color: "var(--st-reverted)" }}>{t("ui.detail.sections_error", "Could not load record content.")}</p></div>
+            ) : sections === null ? (
+              <div className="q-sec"><p style={{ color: "var(--faint)" }}>{t("ui.detail.sections_loading", "Loading…")}</p></div>
+            ) : sections.map((sec) => (
               <div className="q-sec" key={sec.en}>
                 <div className="sh">{sec.label}</div>
                 <p>{renderRefs(sec.text, nav)}</p>

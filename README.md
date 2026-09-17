@@ -2,135 +2,130 @@
 
 # persistent-memory
 
-**Human-like persistent memory for AI coding agents — fully local, no extra API keys.**
+**Local-first, reviewable memory and multi-model deliberation for AI coding agents.**
 
-You just code and talk. The system automatically extracts **decisions** (what was chosen and why) and **lessons** (what failed, why, and when) from your agent conversations, stores them as plain markdown in your repo, and reminds future sessions with a fixed-budget recall block. Mistakes are never deleted — they are superseded, with the original reasoning kept visible.
+It stores selected engineering decisions and lessons as immutable Markdown, retrieves them with local embeddings, and makes them available to future agent sessions. Its optional **Council** uses several configured agent CLIs to deliberate on one decision over fixed rounds, then writes a human-reviewable proposed decision.
 
-*Türkçe dokümantasyon: [README.tr.md](README.tr.md)*
+*Türkçe: [README.tr.md](README.tr.md)*
 
-## What it is — and what it isn't
+## What it is
 
-**It is:**
+- A decision-and-lesson store, not a chat-log archive or codebase RAG.
+- Plain Markdown records in `docs/decisions/` and `docs/lessons/`, with provenance and supersession links rather than silent rewrites.
+- A local daemon on `127.0.0.1:37778` that builds a local Ollama `bge-m3` vector index and injects bounded recall.
+- A stdio MCP bridge to that local daemon, plus optional hooks and localhost HTTP.
+- A machine-local service. Teams share reviewed records through Git; this is not a hosted public MCP service or a multi-tenant server.
 
-- **A decision brain, not a chat log.** It captures *what you decided and why*, and *what failed and what rule you learned* — the two things teams actually lose between sessions, sprints and people.
-- **An audit trail your agent can cite.** Every record carries provenance: which session, which working directory, which agent, with a quote from the original transcript.
-- **Memory that admits mistakes.** Wrong decisions are never silently rewritten — they are superseded by a new record with an explicit rationale, and the old reasoning stays readable. Your future self can see not just the current answer, but the path (and dead ends) that led there.
-- **Infrastructure-free.** One localhost daemon, one local embedding model, markdown files in your repo. No accounts, no cloud, no API keys, no per-token bills.
+## Local-first does not mean zero egress
 
-**It is not:**
-
-- ❌ A RAG over your codebase — it remembers *decisions about* the code, not the code itself.
-- ❌ A generic "remember everything" chat memory — it deliberately extracts only decisions and lessons, because recall quality dies when everything is memorable.
-- ❌ A hosted multi-user platform — the daemon serves one machine; teams share memory the same way they share code: through git.
-
-## Why not just use a hosted memory platform or DIY vector RAG?
-
-| | **persistent-memory** | Hosted memory platforms | DIY vector RAG |
-|---|---|---|---|
-| Where your data lives | Your repo + your machine | Someone else's cloud | Your infra (you build it) |
-| What gets stored | Curated decisions & lessons with provenance | Embeddings/summaries of everything | Whatever you chunk |
-| When you were wrong | Superseded, rationale preserved | Overwritten or duplicated | Stale chunks linger |
-| Can a human review it? | Yes — plain markdown, PR-able | Rarely | Not really |
-| Retrieval quality | Measured: eval gate with recall@k / MRR / nDCG floors in tests | Trust the vendor | You measure it (if you remember to) |
-| Cost & keys | Zero — local Ollama + your existing agent CLI subscription/auth | Subscription + API keys | Embedding API bills |
-| Works with which agents | Claude Code, Codex CLI, any MCP client, plain `curl` | SDK-dependent | Whatever you wire |
-
-The honest trade-off: hosted platforms give you cross-device sync and multi-user dashboards out of the box. This project chooses the other side — your engineering decisions never leave your machine, and the memory itself is a reviewable artifact in your repo instead of an opaque database.
-
-## Built for teams (via git, not another server)
-
-Because records are plain markdown inside the repo:
-
-- **Decision history travels with the code.** Clone the repo, and every "why is it built this way" answer comes along — readable by humans on GitHub and injectable into any teammate's agent sessions.
-- **Memory goes through code review.** Records can ship in PRs; a teammate can challenge a decision record the same way they challenge code.
-- **Onboarding compresses.** A new developer (or a brand-new AI session) reads the decision/lesson history instead of re-asking the team — and the recall hook does it automatically.
-- **Lessons stop repeating.** "We tried that in January, it broke the orders table" surfaces *before* the second attempt, with a link to the original incident.
-- **No agent lock-in.** One teammate on Claude Code, another on Codex, a third scripting with `curl` — same memory, three access paths.
-
-## Principles
-
-- **Decisions are questioned, mistakes are not erased** — records are immutable; corrections happen through supersession links, so the full reasoning history survives.
-- **Fully local, zero egress** — embeddings come from a local Ollama model; nothing leaves your machine.
-- **Quality over tokens** — recall is injected within a fixed token budget, scoped to the current project, with cross-project hits blended in only above a similarity threshold.
-- **Plain markdown as the source of truth** — records live in `docs/decisions/` and `docs/lessons/` and can be committed to git, so a human (or any other agent) can read the project's decision history straight from GitHub.
+Records, the vector index, and the daemon remain local. The system can also invoke authenticated hosted agent CLIs for extraction, recall-aware work, or Council deliberation. Those calls may send transcript-derived content, the Council topic, board messages, and recalled records to the configured provider. Their subscriptions, quotas, rate limits, retention, and privacy terms apply. Review the content you allow into a transcript or Council before enabling those workflows.
 
 ## How it works
 
 ```
-Hooks (signal)  →  Daemon (FastAPI, 127.0.0.1:37778)  →  Records (docs/decisions, docs/lessons)
-                        │                                      │
-                        │                              Vector index (Ollama bge-m3, numpy)
-                        │                                      │
-                        └── Recall injection  ←  Hybrid retrieval (BM25 + vector + recency + salience, RRF)
+Hooks / MCP  →  local daemon  →  Markdown records + local vector index
+                    │                         │
+                    ├── bounded recall  ←──────┘
+                    └── optional Council → proposed decision
 ```
 
-- **Capture:** lightweight hooks fire every N messages and at session end; a background daemon slices the new part of the transcript and dispatches the source-specific extraction worker. Claude/manual transcripts use `claude -p`; Codex transcripts use `codex exec --ignore-user-config -m gpt-5.3-codex-spark` with low reasoning effort. `PM_CODEX_BIN` can pin the Codex CLI; otherwise the macOS Codex.app binary is preferred over PATH when present.
-- **Index:** records are embedded locally with Ollama `bge-m3` (1024-dim, strong Turkish/English bridge) into a numpy vector index with content-hash freshness.
-- **Recall:** at session start and on every prompt, the daemon retrieves the most relevant records (hybrid BM25 + vector ranking fused with RRF, weighted by recency and salience) and injects a compact memory block.
-- **Consolidate:** an optional graph pass clusters records into communities and proposes supersession candidates, reviewable in the dashboard.
+- **Capture:** hooks signal the daemon, which slices a transcript and invokes its matching configured CLI extraction backend. If that backend is unavailable, capture is skipped; existing records remain searchable and recallable.
+- **Recall:** hybrid keyword, vector, recency, and salience retrieval produces a compact memory block within a fixed budget.
+- **Council:** configured members receive the topic, relevant recall, and the append-only board. Round one runs independently in parallel; later rounds run in sequence so members can challenge the board. A spokesperson synthesizes a `proposed` decision record for human acceptance or rejection.
 
-## Three ways any agent can use it
+Council is for consequential questions where independent perspectives help: architecture, trade-offs, or product direction. It is a poor fit for routine edits or questions with one readily verifiable answer. It can finish with failed or skipped members and does not guarantee a correct consensus.
 
-1. **Hooks (automatic)** — Claude Code and Codex CLI share the same hook contract; `install.sh` registers both. Recall and extraction run by themselves.
-2. **MCP (pull)** — a read-only MCP server exposes `search_memory`, `get_record`, `list_recent`, `get_record_provenance` for mid-task queries.
-3. **Plain HTTP** — any agent or script can hit the localhost API:
-   ```bash
-   curl 'http://127.0.0.1:37778/api/search?q=cache+invalidation&top_k=5'
-   curl 'http://127.0.0.1:37778/api/recall?project=my-project'
-   ```
-   Write endpoints require the `X-PM-Token` header (token file: `docs/.pm-index/daemon.token`).
+## MCP and Council
+
+`persistent_memory.mcp_server` is a **stdio** MCP server. It talks only to the local daemon by default; it does not expose a hosted endpoint. It supports recall queries (`search_memory`, `get_record`, `list_recent`, `get_record_provenance`), a local authenticated `create_record`, and Council tools (`council_post`, `council_read`, `council_threads`, `council_open`, `council_status`).
+
+Open a Council from an MCP-capable client, then poll its status:
+
+```text
+council_open(
+  project="my-project",
+  topic="Should the API use cursor pagination for the new activity feed?",
+  cwd="/absolute/path/to/my-project",
+  rounds=2
+)
+
+council_status(project="my-project", session_id="<returned-session-id>")
+```
+
+Only one Council session can be active per project. The runner records each member's outcome and writes the final synthesis as a proposed record only when it can produce one. Council members themselves are prevented from posting or creating records through this MCP server; their responses are captured by the runner.
+
+The `project` argument scopes the Council board and session, **not** the Council's initial memory lookup. That lookup uses global memory search and can return record IDs, titles, and project names from other projects. A hosted Council CLI can receive those results along with the topic; do not use Council across a corpus whose cross-project metadata must stay isolated.
+
+Add `.pm-council.yaml` to a project root when the defaults do not suit the project. This is a minimal valid configuration:
+
+```yaml
+version: 1
+spokesperson: claude
+rounds: 2
+turn_timeout_seconds: 600
+members:
+  - id: claude
+    backend: claude
+    role: "System design and long-term trade-offs."
+  - id: codex
+    backend: codex
+    role: "Implementation reality and measurable cost."
+  - id: grok
+    backend: grok
+    role: "Challenge assumptions and surface alternatives."
+```
+
+Supported backends are `claude`, `codex`, `kimi`, and `grok`. Configured members and rounds are bounded (at most six members, five rounds, and 24 total turn calls including synthesis); disabled or unavailable members are reported in the session status.
 
 ## Requirements
 
-- macOS (the daemon runs under launchd; the code itself is portable, but the installer is macOS-specific)
-- Python ≥ 3.12
-- [Ollama](https://ollama.com) with the `bge-m3` model (the preflight doctor installs missing prerequisites)
-- Claude Code CLI and/or Codex CLI for automatic extraction, depending on which agent produced the transcript. Without a matching CLI, capture degrades gracefully but search/recall keep working.
+- macOS for the supported installer and its launchd daemon registration.
+- Python 3.12 or newer.
+- Local [Ollama](https://ollama.com) with `bge-m3` for embeddings and recall.
+- A matching authenticated agent CLI for automatic extraction. Council also needs each configured member CLI to be installed and authenticated.
 
 ## Quickstart
 
 ```bash
 git clone https://github.com/AzazelSensei/persistent-memory.git
 cd persistent-memory
-./install.sh            # doctor preflight + venv + hooks + launchd daemon
+./install.sh
 ```
 
-Try it immediately with the demo corpus:
+Try the demo corpus after the daemon is available:
 
 ```bash
+mkdir -p docs
 cp -r examples/demo-corpus/decisions examples/demo-corpus/lessons docs/
 curl 'http://127.0.0.1:37778/api/search?q=stale+cache+flash+sale'
-open http://127.0.0.1:37778        # dashboard
+open http://127.0.0.1:37778
 ```
 
-> **Dashboard address:** always `http://127.0.0.1:37778` — the port is **fixed** (37778) and the daemon binds to localhost only. Opening `http://127.0.0.1` without the port will not load anything.
+The dashboard and HTTP API bind to `127.0.0.1:37778`. Installing registers the stdio MCP process with supported local CLIs when available; the MCP server still requires the local daemon to answer requests.
 
-Useful commands:
+## Validation and retrieval evaluation
 
 ```bash
-./.venv/bin/python -m pytest -q                      # test suite
-./.venv/bin/python -m persistent_memory.doctor --check   # prerequisite scan
-./.venv/bin/python -m persistent_memory.daemon       # run daemon manually
-./.venv/bin/python eval/recall_eval.py               # retrieval quality benchmark
-scripts/backup.sh docs my-snapshot.tar.gz            # snapshot records + index
+./.venv/bin/python -m persistent_memory.doctor --check
+./.venv/bin/python -m pytest -q
+cp eval/recall_queries.example.json eval/recall_queries.json
+./.venv/bin/python eval/recall_eval.py
+PM_EVAL_LIVE=1 ./.venv/bin/python -m pytest tests/test_recall_eval_gate.py -q
 ```
 
-## Measuring retrieval quality
+The public repository ships only the starter query set. Keep the populated `eval/recall_queries.json` local and tailor it to your corpus; the live evaluation commands require a running local model and records.
 
-`eval/recall_eval.py` measures recall@k, MRR, nDCG@10 and latency over a query set (`eval/recall_queries.json`, gitignored — start from `eval/recall_queries.example.json` and grow it from your own missed queries). A live regression gate (`PM_EVAL_LIVE=1 pytest tests/test_recall_eval_gate.py`) fails when retrieval quality drops below measured floors — run it before merging any retrieval change.
+## Security boundaries
 
-## Security model
+- The daemon binds to localhost and mutation endpoints use a local token.
+- Extraction paths are checked against configured roots, and extraction treats transcript content as data rather than instructions.
+- Council subprocesses are deliberately launched with provider-specific non-sandbox/bypass approval modes. `PM_COUNCIL_READONLY=1` blocks only this MCP server's `create_record` and `council_post` calls for Council members; it is not OS sandboxing or a general read-only guarantee.
+- These controls are implementation boundaries, not a claim of production-grade isolation. Hosted CLI calls have the provider boundary described above.
 
-- The daemon binds to `127.0.0.1` only; write endpoints require a token compared in constant time.
-- Transcript and working-directory paths passed to the extraction worker are validated against allow-listed roots.
-- The extraction prompt treats transcript content strictly as data — instructions inside transcripts are never executed.
+## Developing
 
-## Developing with AI agents
-
-This project was built almost entirely by AI agents working from instruction files, and it is meant to be extended the same way. [`AGENTS.md`](AGENTS.md) is the agent-facing manual: architecture map, verified commands, hard rules (TDD, eval gates, immutability contracts) and known gotchas. Point your agent at it before asking for changes.
+Read [AGENTS.md](AGENTS.md) before changing the code. It maps the architecture and its contracts, including record immutability, Council configuration, and the local MCP boundary.
 
 ## License
 
-GNU Affero General Public License v3.0 or later — see [LICENSE](LICENSE).
-
-This project is licensed under the AGPL-3.0-or-later. If you modify this software and run it as a network service, you must make the complete corresponding source code of your modified version available to the users of that service.
+GNU Affero General Public License v3.0 or later — see [LICENSE](LICENSE). If you modify this software and run it as a network service, you must make the corresponding source available to its users under the AGPL.

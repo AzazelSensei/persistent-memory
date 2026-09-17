@@ -1,4 +1,4 @@
-"""Shared plumbing for the Claude Code / Codex / Kimi hook entrypoints.
+"""Shared plumbing for the Claude Code / Codex / Kimi / Grok hook entrypoints.
 
 Hooks are a thin signal layer: they parse the hook payload from stdin, keep a
 tiny per-project message counter on disk, and fire short-timeout HTTP signals
@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
@@ -26,22 +27,33 @@ HOOK_HTTP_TIMEOUT_SECONDS = 2.0
 PROJECT_KEY_LENGTH = 16
 TOKEN_HEADER = "X-PM-Token"
 DEFAULT_STATE_DIR = Path.home() / ".claude" / "persistent-memory" / "hook-state"
+GROK_SESSIONS_ROOT = Path.home() / ".grok" / "sessions"
+GROK_CHAT_HISTORY_FILENAME = "chat_history.jsonl"
 
 
 class Host(enum.Enum):
     CLAUDE = "claude"
     CODEX = "codex"
     KIMI = "kimi"
+    GROK = "grok"
 
 
 def detect_host(payload: dict) -> Host:
-    """Identify the host CLI from the hook payload.
+    """Identify the host CLI from the hook payload / process env.
 
-    Kimi Code CLI uses snake_case keys and exposes ``session_dir``; Claude and
-    Codex share the same JSON envelope, so they both map to ``Host.CLAUDE``.
+    Kimi Code CLI uses snake_case keys and exposes ``session_dir``. Grok sets
+    ``GROK_SESSION_ID`` / ``GROK_HOOK_EVENT`` on every hook process (and uses
+    camelCase payload keys). Claude and Codex share the same JSON envelope, so
+    they both map to ``Host.CLAUDE``.
     """
     if payload.get("session_dir"):
         return Host.KIMI
+    if os.environ.get("GROK_SESSION_ID") or os.environ.get("GROK_HOOK_EVENT"):
+        return Host.GROK
+    if payload.get("sessionId") and (
+        payload.get("workspaceRoot") is not None or payload.get("hookEventName")
+    ):
+        return Host.GROK
     return Host.CLAUDE
 
 
@@ -49,6 +61,8 @@ def state_dir_for_host(host: Host) -> Path:
     """Return the per-host state directory for message counters."""
     if host is Host.KIMI:
         return Path.home() / ".kimi-code" / "persistent-memory" / "hook-state"
+    if host is Host.GROK:
+        return Path.home() / ".grok" / "persistent-memory" / "hook-state"
     return DEFAULT_STATE_DIR
 
 
@@ -57,10 +71,15 @@ def emit_context(text: str, host: Host, event_name: str) -> None:
 
     - Claude/Codex: JSON envelope with ``hookSpecificOutput.additionalContext``.
     - Kimi: plain stdout text (the runner appends it to the agent context).
+    - Grok: same Claude JSON envelope when supported; docs currently ignore
+      stdout on some passive events, so hooks also write a side-channel file
+      under ``~/.grok/persistent-memory/`` for agent PULL fallback.
     """
     if host is Host.KIMI:
         sys.stdout.write(text)
         return
+    if host is Host.GROK:
+        _write_grok_recall_sidechannel(text)
     payload = {
         "hookSpecificOutput": {
             "hookEventName": event_name,
@@ -70,11 +89,23 @@ def emit_context(text: str, host: Host, event_name: str) -> None:
     sys.stdout.write(json.dumps(payload))
 
 
+def _write_grok_recall_sidechannel(text: str) -> None:
+    if not text or not text.strip():
+        return
+    try:
+        target_dir = Path.home() / ".grok" / "persistent-memory"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        path = target_dir / "last-recall.md"
+        path.write_text(text.strip() + "\n", encoding="utf-8")
+    except OSError:
+        return
+
+
 def extract_prompt_text(payload: dict) -> str:
     """Extract the user's prompt text from a host-specific payload.
 
-    Kimi passes ``prompt`` as a list of ContentParts; Claude/Codex pass a string
-    or a ``message`` object.
+    Kimi passes ``prompt`` as a list of ContentParts; Claude/Codex/Grok pass a
+    string or a ``message`` object.
     """
     prompt = payload.get("prompt")
     if isinstance(prompt, list):
@@ -94,11 +125,66 @@ def extract_prompt_text(payload: dict) -> str:
     return ""
 
 
+def _grok_session_id(payload: dict) -> str | None:
+    for key in ("session_id", "sessionId"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    env_value = os.environ.get("GROK_SESSION_ID")
+    if env_value and env_value.strip():
+        return env_value.strip()
+    return None
+
+
+def _grok_cwd(payload: dict) -> str | None:
+    for key in ("cwd", "workspaceRoot", "workspace_root"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for env_key in ("GROK_WORKSPACE_ROOT", "CLAUDE_PROJECT_DIR"):
+        env_value = os.environ.get(env_key)
+        if env_value and env_value.strip():
+            return env_value.strip()
+    return None
+
+
+def resolve_grok_transcript_path(
+    *,
+    session_id: str | None,
+    cwd: str | None,
+    sessions_root: Path | None = None,
+) -> str | None:
+    """Locate ``chat_history.jsonl`` for a Grok session under ``~/.grok/sessions``."""
+    if not session_id:
+        return None
+    root = sessions_root if sessions_root is not None else GROK_SESSIONS_ROOT
+    candidates: list[Path] = []
+    if cwd:
+        encoded = quote(cwd, safe="")
+        candidates.append(root / encoded / session_id / GROK_CHAT_HISTORY_FILENAME)
+    if root.is_dir():
+        try:
+            for match in root.glob(f"*/{session_id}/{GROK_CHAT_HISTORY_FILENAME}"):
+                candidates.append(match)
+        except OSError:
+            pass
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_file():
+            return str(path)
+    return None
+
+
 def transcript_path_from_payload(payload: dict) -> str | None:
     """Return a transcript path for the daemon, if one can be determined.
 
     Kimi exposes ``session_dir``; the active agent wire log lives at
-    ``<session_dir>/agents/main/wire.jsonl``.
+    ``<session_dir>/agents/main/wire.jsonl``. Grok stores chat history at
+    ``~/.grok/sessions/<url-encoded-cwd>/<session_id>/chat_history.jsonl``.
     """
     explicit = payload.get("transcript_path")
     if explicit:
@@ -108,6 +194,12 @@ def transcript_path_from_payload(payload: dict) -> str | None:
         path = Path(session_dir) / "agents" / "main" / "wire.jsonl"
         if path.is_file():
             return str(path)
+    grok_path = resolve_grok_transcript_path(
+        session_id=_grok_session_id(payload),
+        cwd=_grok_cwd(payload),
+    )
+    if grok_path:
+        return grok_path
     return None
 
 

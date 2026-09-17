@@ -8,16 +8,19 @@
 #   4. merges the five hooks (UserPromptSubmit/Stop/PreCompact/SessionStart/PreToolUse) into
 #      ~/.claude/settings.json (idempotent; existing user hooks are preserved; needs jq)
 #   5. if the `codex` CLI (or ~/.codex) is detected, mirrors hooks + skill into ~/.codex
-#   6. registers the read-only MCP server with `claude mcp` / `codex mcp` when available
-#   7. writes a macOS LaunchAgent plist and loads the daemon via launchctl
+#   6. if the `kimi` CLI (or ~/.kimi-code) is detected, merges hooks/skill/MCP into Kimi
+#   7. if the `grok` CLI (or ~/.grok) is detected, writes hooks/skill/MCP into ~/.grok
+#   8. registers the read-only MCP server with `claude mcp` / `codex mcp` / `grok mcp` when available
+#   9. writes a macOS LaunchAgent plist and loads the daemon via launchctl
 #
 # Assumptions: macOS (launchd step), python3.12 and jq on PATH (doctor installs them),
-# Claude Code and/or Codex CLI optional — missing tools are skipped with a message.
+# Claude Code / Codex / Kimi / Grok optional — missing tools are skipped with a message.
 #
 # Usage: ./install.sh [--dry-run]
 # Env flags: PM_TARGET_HOME (target home dir), PM_SKIP_DOCTOR=1, PM_SKIP_VENV=1,
 #   PM_SKIP_LAUNCHD=1, PM_SKIP_CODEX=1, PM_SKIP_MCP=1, PM_INSTALL_CODEX=1 (force Codex step),
-#   PM_SKIP_KIMI=1, PM_INSTALL_KIMI=1 (force Kimi step).
+#   PM_SKIP_KIMI=1, PM_INSTALL_KIMI=1 (force Kimi step),
+#   PM_SKIP_GROK=1, PM_INSTALL_GROK=1 (force Grok step).
 set -euo pipefail
 
 DRY_RUN=0
@@ -39,6 +42,10 @@ KIMI_DIR="$TARGET_HOME/.kimi-code"
 KIMI_CONFIG="$KIMI_DIR/config.toml"
 KIMI_MCP="$KIMI_DIR/mcp.json"
 KIMI_SKILL_DEST="$KIMI_DIR/skills/persistent-memory"
+GROK_DIR="$TARGET_HOME/.grok"
+GROK_HOOKS_FILE="$GROK_DIR/hooks/persistent-memory.json"
+GROK_SKILL_DEST="$GROK_DIR/skills/persistent-memory"
+GROK_CONFIG="$GROK_DIR/config.toml"
 
 HOOK_EVENTS=("UserPromptSubmit" "Stop" "PreCompact" "SessionStart" "PreToolUse")
 
@@ -97,7 +104,7 @@ merge_hooks_into() {
      | .hooks.Stop = ((.hooks.Stop // []) | upsert($stop))
      | .hooks.PreCompact = ((.hooks.PreCompact // []) | upsert($pre))
      | .hooks.SessionStart = ((.hooks.SessionStart // []) | upsert($ss))
-     | .hooks.PreToolUse = ((.hooks.PreToolUse // []) | upsert_matcher($ptu; "Agent|Task"; 5))' \
+     | .hooks.PreToolUse = ((.hooks.PreToolUse // []) | upsert_matcher($ptu; "Agent|Task|Workflow"; 5))' \
     "$file" > "$tmp"
   mv "$tmp" "$file"
 }
@@ -204,7 +211,7 @@ ours = [
     {"event": "Stop", "command": f"{venv}/bin/python -m persistent_memory.hooks.stop_or_session_end"},
     {"event": "PreCompact", "command": f"{venv}/bin/python -m persistent_memory.hooks.pre_compact"},
     {"event": "SessionStart", "command": f"{venv}/bin/python -m persistent_memory.hooks.session_start"},
-    {"event": "PreToolUse", "matcher": "Agent|Task", "command": f"{venv}/bin/python -m persistent_memory.hooks.pre_tool_use", "timeout": 5},
+    {"event": "PreToolUse", "matcher": "Agent|Task|Workflow", "command": f"{venv}/bin/python -m persistent_memory.hooks.pre_tool_use", "timeout": 5},
 ]
 our_cmds = {h["command"] for h in ours}
 
@@ -257,6 +264,99 @@ with open(mcp_path, "w", encoding="utf-8") as f:
     f.write("\n")
 PYEOF
   say "Kimi MCP 'persistent-memory' registered in $KIMI_MCP"
+}
+
+should_install_grok() {
+  [[ "${PM_SKIP_GROK:-0}" == "1" ]] && return 1
+  [[ "${PM_INSTALL_GROK:-0}" == "1" ]] && return 0
+  command -v grok >/dev/null 2>&1 && return 0
+  [[ -d "$GROK_DIR" ]] && return 0
+  return 1
+}
+
+install_grok_skill() {
+  if [[ $DRY_RUN -eq 1 ]]; then
+    plan "copy $REPO_ROOT/skill/SKILL.md to $GROK_SKILL_DEST/SKILL.md (.grok/skills/persistent-memory)"
+    return
+  fi
+  mkdir -p "$GROK_SKILL_DEST"
+  cp "$REPO_ROOT/skill/SKILL.md" "$GROK_SKILL_DEST/SKILL.md"
+}
+
+register_grok_hooks() {
+  if [[ $DRY_RUN -eq 1 ]]; then
+    for event in "${HOOK_EVENTS[@]}"; do
+      plan "write grok hook $event into $GROK_HOOKS_FILE"
+    done
+    return
+  fi
+  mkdir -p "$(dirname "$GROK_HOOKS_FILE")"
+  local tmp; tmp="$(mktemp)"
+  jq -n \
+    --arg ups "$(hook_command user_prompt_submit)" \
+    --arg stop "$(hook_command stop_or_session_end)" \
+    --arg pre "$(hook_command pre_compact)" \
+    --arg ss "$(hook_command session_start)" \
+    --arg ptu "$(hook_command pre_tool_use)" \
+    '{
+      hooks: {
+        UserPromptSubmit: [{hooks: [{type: "command", command: $ups}]}],
+        Stop: [{hooks: [{type: "command", command: $stop}]}],
+        PreCompact: [{hooks: [{type: "command", command: $pre}]}],
+        SessionStart: [{hooks: [{type: "command", command: $ss}]}],
+        PreToolUse: [{matcher: "Agent|Task|Workflow|spawn_subagent", hooks: [{type: "command", command: $ptu, timeout: 5}]}]
+      }
+    }' > "$tmp"
+  mv "$tmp" "$GROK_HOOKS_FILE"
+  say "Grok hooks written to $GROK_HOOKS_FILE"
+}
+
+register_grok_mcp() {
+  [[ "${PM_SKIP_MCP:-0}" == "1" ]] && return
+  local name="persistent-memory"
+  local cmd="$VENV_DIR/bin/python"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    plan "register MCP server '$name' ($cmd -m persistent_memory.mcp_server) in Grok ($GROK_CONFIG or grok mcp)"
+    return
+  fi
+  mkdir -p "$GROK_DIR"
+  if command -v grok >/dev/null 2>&1; then
+    grok mcp remove "$name" >/dev/null 2>&1 || true
+    if grok mcp add "$name" -- "$cmd" -m persistent_memory.mcp_server >/dev/null 2>&1; then
+      say "Grok MCP '$name' registered via grok mcp."
+      return
+    fi
+  fi
+  "$VENV_DIR/bin/python" - "$GROK_CONFIG" "$cmd" <<'PYEOF'
+import sys
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover
+    import tomli as tomllib
+
+import tomli_w
+
+config_path = sys.argv[1]
+cmd = sys.argv[2]
+
+try:
+    with open(config_path, "rb") as f:
+        data = tomllib.load(f)
+except FileNotFoundError:
+    data = {}
+
+servers = data.setdefault("mcp_servers", {})
+servers["persistent-memory"] = {
+    "command": cmd,
+    "args": ["-m", "persistent_memory.mcp_server"],
+    "enabled": True,
+}
+
+with open(config_path, "wb") as f:
+    tomli_w.dump(data, f)
+PYEOF
+  say "Grok MCP 'persistent-memory' registered in $GROK_CONFIG"
 }
 
 _lang_subtag() {
@@ -316,6 +416,11 @@ if should_install_kimi; then
   install_kimi_skill
   register_kimi_hooks
   register_kimi_mcp
+fi
+if should_install_grok; then
+  install_grok_skill
+  register_grok_hooks
+  register_grok_mcp
 fi
 register_mcp
 install_launchd

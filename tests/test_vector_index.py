@@ -1,7 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import pytest
 
 from persistent_memory.embeddings import VectorIndex
+from persistent_memory.retriever import cosine_similarity
 
 EMBED_DIM = 1024
 
@@ -106,6 +109,71 @@ def test_query_top_k_caps_results(tmp_path):
     for i in range(5):
         index.upsert(f"D-{i}", _axis_vec(i), content_hash=f"h{i}")
     assert len(index.query(_axis_vec(0), top_k=3)) == 3
+
+
+def test_query_records_limits_results_to_requested_ids(tmp_path):
+    index = VectorIndex(tmp_path / ".pm-index")
+    index.upsert("OUTSIDE", _axis_vec(0), content_hash="h0")
+    index.upsert("A", _axis_vec(1), content_hash="h1")
+    index.upsert("B", _axis_vec(2), content_hash="h2")
+
+    results = index.query_records(_axis_vec(1), ["B", "MISSING", "A"])
+
+    assert [record_id for record_id, _ in results] == ["A", "B"]
+    assert results[0][1] == pytest.approx(1.0, abs=1e-12)
+
+
+def test_query_records_matches_individual_cosine_scores(tmp_path):
+    index = VectorIndex(tmp_path / ".pm-index")
+    vectors = {"A": [3.0, 4.0], "B": [2.0, 0.0], "C": [0.0, 1.0]}
+    for record_id, vector in vectors.items():
+        index.upsert(record_id, vector, content_hash=record_id)
+    query = [2.0, 1.0]
+
+    results = index.query_records(query, ["C", "A", "B"])
+    expected = sorted(
+        ((record_id, cosine_similarity(query, vector)) for record_id, vector in vectors.items()),
+        key=lambda pair: (-pair[1], pair[0]),
+    )
+
+    assert [record_id for record_id, _ in results] == [record_id for record_id, _ in expected]
+    assert [score for _, score in results] == pytest.approx([score for _, score in expected], abs=1e-12)
+
+
+def test_query_records_treats_nonfinite_vectors_as_zero_score(tmp_path):
+    index = VectorIndex(tmp_path / ".pm-index")
+    index.upsert("A", [float("nan"), 1.0], content_hash="a")
+    index.upsert("B", [1.0, 0.0], content_hash="b")
+
+    assert index.query_records([float("nan"), 1.0], ["B", "A"]) == [
+        ("A", 0.0),
+        ("B", 0.0),
+    ]
+    assert index.query_records([1.0, 0.0], ["A", "B"]) == [("B", 1.0), ("A", 0.0)]
+
+
+def test_query_records_is_safe_during_concurrent_mutation(tmp_path):
+    index = VectorIndex(tmp_path / ".pm-index")
+    for i in range(128):
+        index.upsert(f"R-{i}", [float(i + 1), 1.0], content_hash=str(i))
+    record_ids = [f"R-{i}" for i in range(128)]
+
+    def read_many() -> None:
+        for _ in range(100):
+            results = index.query_records([1.0, 1.0], record_ids)
+            assert all(np.isfinite(score) for _, score in results)
+
+    def mutate_many() -> None:
+        for i in range(100):
+            record_id = f"R-{i % 128}"
+            index.remove(record_id)
+            index.upsert(record_id, [float(i + 1), 1.0], content_hash=f"new-{i}")
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(read_many) for _ in range(4)]
+        futures.append(executor.submit(mutate_many))
+        for future in futures:
+            future.result()
 
 
 def test_load_resets_on_mismatched_files(tmp_path):

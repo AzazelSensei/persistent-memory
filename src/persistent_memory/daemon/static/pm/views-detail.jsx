@@ -3,7 +3,7 @@
 (function () {
   const React = window.React;
   const { useState, useEffect } = React;
-  const { Icon, StatusPill, Importance, KindTag, renderRefs } = window.PMUI;
+  const { Icon, StatusPill, Importance, KindTag, renderRefs, pmById } = window.PMUI;
 
   if (!document.getElementById("pm-detail-css")) {
     const s = document.createElement("style");
@@ -68,7 +68,6 @@
   }
 
   function MiniGraph({ rec, nav }) {
-    const PM = window.PM;
     const rels = [];
     if (rec.relationships.supersedes) rels.push({ id: rec.relationships.supersedes, kind: "supersedes" });
     (rec.relationships.related || []).forEach((id) => rels.push({ id, kind: "related" }));
@@ -93,7 +92,8 @@
         <text x="60" y={cyMid + 3.5} textAnchor="middle" fontSize="9.5" fill="var(--accent-ink)" fontFamily="var(--font-mono)" fontWeight="600">{rec.id.replace(/^([A-Z]+)-0*/, "$1")}</text>
         {rels.map((r, i) => {
           const ny = (H / (rels.length + 1)) * (i + 1);
-          const isLes = PM.byId[r.id] ? PM.byId[r.id].kind === "lesson" : r.id.startsWith("L");
+          const known = pmById(r.id);
+          const isLes = known ? known.kind === "lesson" : r.id.startsWith("L");
           const col = r.kind === "supersedes" || r.kind === "superseded-by" ? "var(--st-superseded)" : (isLes ? "var(--violet)" : "var(--accent)");
           return (
             <g key={"n" + i} style={{ cursor: "pointer" }} onClick={() => nav("detail", { id: r.id })}>
@@ -109,13 +109,29 @@
   }
 
   function DetailView({ rec, nav, onAction, liveStatus }) {
-    const PM = window.PM;
     const [passages, setPassages] = useState(rec.source.passages || []);
     useEffect(() => {
       let alive = true;
       setPassages(rec.source.passages || []);
       if (window.PM_API && window.PM_API.fetchSource) {
         window.PM_API.fetchSource(rec.id).then((d) => { if (alive && d && d.passages) setPassages(d.passages); });
+      }
+      return () => { alive = false; };
+    }, [rec.id]);
+    const [sections, setSections] = useState(null);
+    const [sectionsErr, setSectionsErr] = useState(false);
+    useEffect(() => {
+      let alive = true;
+      setSections(null);
+      setSectionsErr(false);
+      if (window.PM_API && window.PM_API.fetchRecordSections) {
+        window.PM_API.fetchRecordSections(rec.id).then((d) => {
+          if (!alive) return;
+          if (d && Array.isArray(d.sections)) setSections(d.sections);
+          else setSectionsErr(true);
+        });
+      } else {
+        setSectionsErr(true);
       }
       return () => { alive = false; };
     }, [rec.id]);
@@ -138,10 +154,11 @@
       });
     };
     const status = liveStatus || rec.status;
-    const half = rec.sections.slice(0, 2);
-    const full = rec.sections.slice(2);
-    const sup = rec.relationships.supersedes ? PM.byId[rec.relationships.supersedes] : null;
-    const related = (rec.relationships.related || []).map((id) => PM.byId[id]).filter(Boolean);
+    const half = sections ? sections.slice(0, 2) : [];
+    const full = sections ? sections.slice(2) : [];
+    const sup = rec.relationships.supersedes ? pmById(rec.relationships.supersedes) : null;
+    const supersededByRec = rec.relationships.supersededBy ? pmById(rec.relationships.supersededBy) : null;
+    const related = (rec.relationships.related || []).map((id) => pmById(id)).filter(Boolean);
     const pending = status === "proposed";
     const impColor = rec.importance > 0.66 ? "var(--st-reverted)" : rec.importance > 0.4 ? "var(--st-proposed)" : "var(--st-accepted)";
 
@@ -182,6 +199,14 @@
                     <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--faint)" }}>title = first # line · frontmatter & source section preserved</span>
                   </div>
                 </div>
+              </div>
+            ) : sectionsErr ? (
+              <div className="pm-card d-sec full">
+                <p style={{ color: "var(--st-reverted)" }}>{t("ui.detail.sections_error", "Could not load record content.")}</p>
+              </div>
+            ) : sections === null ? (
+              <div className="pm-card d-sec full">
+                <p style={{ color: "var(--faint)" }}>{t("ui.detail.sections_loading", "Loading…")}</p>
               </div>
             ) : (
               <div className="d-grid">
@@ -232,10 +257,10 @@
                   <span><div className="rid">{sup.id}</div><span className="rt strike">{sup.title}</span></span>
                 </div>
               )}
-              {rec.relationships.supersededBy && PM.byId[rec.relationships.supersededBy] && (
+              {supersededByRec && (
                 <div className="d-rel" onClick={() => nav("detail", { id: rec.relationships.supersededBy })}>
                   <span className="k">SUPERSEDED-BY</span>
-                  <span><div className="rid">{rec.relationships.supersededBy}</div><span className="rt">{PM.byId[rec.relationships.supersededBy].title}</span></span>
+                  <span><div className="rid">{rec.relationships.supersededBy}</div><span className="rt">{supersededByRec.title}</span></span>
                 </div>
               )}
               {related.map((r) => (

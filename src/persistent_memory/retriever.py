@@ -156,8 +156,10 @@ def bm25_rank(query: str, records: list[Any]) -> list[Any]:
 def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     a = np.asarray(vec_a, dtype=np.float64)
     b = np.asarray(vec_b, dtype=np.float64)
+    if not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
+        return 0.0
     norm = float(np.linalg.norm(a) * np.linalg.norm(b))
-    if norm < EPSILON:
+    if not np.isfinite(norm) or norm < EPSILON:
         return 0.0
     return float(np.dot(a, b) / norm)
 
@@ -168,12 +170,17 @@ def vector_rank(query: str, records: list[Any], embedder: Any) -> list[Any]:
     query_vec = embedder.embed_query(query)
     if not query_vec:
         return []
-    scored = []
-    for rec in records:
-        record_vec = embedder.get_vector(rec.id)
-        if record_vec is None:
-            continue
-        scored.append((rec, cosine_similarity(query_vec, record_vec)))
+    rank_records = getattr(embedder, "rank_records", None)
+    if callable(rank_records):
+        scores_by_id = dict(rank_records(query_vec, [rec.id for rec in records]))
+        scored = [(rec, scores_by_id[rec.id]) for rec in records if rec.id in scores_by_id]
+    else:
+        scored = []
+        for rec in records:
+            record_vec = embedder.get_vector(rec.id)
+            if record_vec is None:
+                continue
+            scored.append((rec, cosine_similarity(query_vec, record_vec)))
     scored.sort(key=lambda pair: (-pair[1], pair[0].id))
     return [rec for rec, _ in scored]
 

@@ -11,6 +11,7 @@ import sys
 
 import httpx
 
+from persistent_memory.i18n import t
 from persistent_memory.hooks import common
 from persistent_memory.hooks.common import (
     DAEMON_BASE_URL,
@@ -32,6 +33,36 @@ EXTRACT_ENDPOINT = "/api/extract"
 PROMPT_RECALL_ENDPOINT = "/api/prompt-recall"
 PROMPT_RECALL_HTTP_TIMEOUT_SECONDS = 2.0
 HOOK_EVENT_NAME = "UserPromptSubmit"
+DECISION_PROTOCOL_KEY = "decision_recall.protocol"
+DECISION_PROMPT_TERMS = (
+    "anti tez",
+    "araştır",
+    "arastir",
+    "değerlendir",
+    "degerlendir",
+    "hangisi",
+    "incele",
+    "karar",
+    "kontrol et",
+    "mimari",
+    "nasıl",
+    "nasil",
+    "neden",
+    "onay",
+    "önce",
+    "once",
+    "plan",
+    "risk",
+    "sence",
+    "tez",
+    "tradeoff",
+    "evaluate",
+    "investigate",
+    "review",
+    "decide",
+    "decision",
+    "architecture",
+)
 
 
 def fetch_prompt_recall_block(prompt: str, project: str) -> str:
@@ -45,13 +76,30 @@ def fetch_prompt_recall_block(prompt: str, project: str) -> str:
     return response.json().get("block", "")
 
 
+def _looks_decision_bearing(prompt: str) -> bool:
+    folded = prompt.casefold()
+    return any(term in folded for term in DECISION_PROMPT_TERMS)
+
+
+def _decision_protocol_block(prompt: str) -> str:
+    if not _looks_decision_bearing(prompt):
+        return ""
+    return t(DECISION_PROTOCOL_KEY)
+
+
+def _join_context_blocks(*blocks: str) -> str:
+    return "\n\n".join(block.strip() for block in blocks if block and block.strip())
+
+
 def _inject_recall(prompt: str, project: str, host: common.Host) -> None:
     if not prompt:
         return
+    protocol_block = _decision_protocol_block(prompt)
     try:
-        block = fetch_prompt_recall_block(prompt=prompt, project=project)
+        recall_block = fetch_prompt_recall_block(prompt=prompt, project=project)
     except (httpx.HTTPError, OSError, ValueError, RuntimeError):
-        return
+        recall_block = ""
+    block = _join_context_blocks(protocol_block, recall_block)
     if block:
         emit_context(block, host=host, event_name=HOOK_EVENT_NAME)
 

@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from persistent_memory.lint import LoadedRecord
+from persistent_memory.embeddings import RetrievalAdapter, VectorIndex
 from persistent_memory.retriever import (
     RetrievalCandidate,
     adapt_loaded_record,
@@ -108,6 +109,14 @@ class FakeEmbedder:
         return self._record_vecs.get(record_id)
 
 
+class StaticEmbedder:
+    def __init__(self, query_vec):
+        self._query_vec = query_vec
+
+    def embed_one(self, text: str) -> list[float]:
+        return self._query_vec
+
+
 def test_vector_rank_orders_by_cosine_similarity():
     records = [make_record(id="D-1"), make_record(id="D-2"), make_record(id="D-3")]
     embedder = FakeEmbedder(
@@ -136,6 +145,29 @@ def test_vector_rank_handles_zero_vector_without_crash():
     embedder = FakeEmbedder(query_vec=[1.0, 0.0], record_vecs={"D-1": [0.0, 0.0]})
     ranked = vector_rank(query="x", records=records, embedder=embedder)
     assert [r.id for r in ranked] == ["D-1"]
+
+
+def test_vector_rank_treats_nonfinite_vectors_as_zero_score():
+    records = [make_record(id="B"), make_record(id="A")]
+    embedder = FakeEmbedder(
+        query_vec=[float("nan"), 1.0],
+        record_vecs={"A": [1.0, 0.0], "B": [0.0, 1.0]},
+    )
+
+    assert [record.id for record in vector_rank("x", records, embedder)] == ["A", "B"]
+
+
+def test_vector_rank_uses_adapter_matrix_query_with_scope(tmp_path):
+    index = VectorIndex(tmp_path / ".pm-index")
+    index.upsert("OUTSIDE", [1.0, 0.0], content_hash="out")
+    index.upsert("D-1", [0.0, 1.0], content_hash="one")
+    index.upsert("D-2", [0.7, 0.7], content_hash="two")
+    embedder = RetrievalAdapter(StaticEmbedder([0.0, 1.0]), index)
+    records = [make_record(id="D-2"), make_record(id="D-1"), make_record(id="MISSING")]
+
+    ranked = vector_rank(query="x", records=records, embedder=embedder)
+
+    assert [record.id for record in ranked] == ["D-1", "D-2"]
 
 
 def test_recency_weight_recent_higher_than_old():

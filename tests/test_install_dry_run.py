@@ -71,3 +71,12 @@ def test_dry_run_plans_codex_skill_copy_when_codex_present(tmp_path):
     result = _run_dry({"PM_TARGET_HOME": str(fake_home), "PM_INSTALL_CODEX": "1"})
     assert result.returncode == 0, result.stderr
     assert ".codex/skills/persistent-memory" in result.stdout
+
+
+def test_dry_run_plans_grok_when_forced(tmp_path):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    result = _run_dry({"PM_TARGET_HOME": str(fake_home), "PM_INSTALL_GROK": "1"})
+    assert result.returncode == 0, result.stderr
+    assert ".grok/skills/persistent-memory" in result.stdout
+    assert "persistent-memory.json" in result.stdout or "grok hook" in result.stdout

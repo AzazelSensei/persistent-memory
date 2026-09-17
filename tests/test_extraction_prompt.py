@@ -52,3 +52,15 @@ def test_build_argv_uses_headless_flags():
 def test_argv_skips_add_dir_when_no_cwd():
     argv = ep.build_extraction_argv(prompt="HI", cwd="")
     assert "--add-dir" not in argv
+
+
+def test_build_grok_argv_uses_headless_flags():
+    argv = ep.build_grok_extraction_argv(prompt="HELLO", cwd="/tmp/repo")
+    assert argv[0] == "grok"
+    assert "-p" in argv
+    assert "HELLO" in argv
+    assert "--always-approve" in argv
+    assert "--output-format" in argv
+    assert "plain" in argv
+    assert "--cwd" in argv
+    assert "/tmp/repo" in argv

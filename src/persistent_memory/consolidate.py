@@ -10,6 +10,7 @@ graphify rebuild itself.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,7 +30,13 @@ GRAPH_FILENAME = "graph.json"
 CLAUDE_BUILD_PROMPT = "/graphify {root} --update"
 CLAUDE_OUTPUT_FORMAT = "json"
 CLAUDE_PERMISSION_MODE = "bypassPermissions"
+# Graph building is structured extraction, not open reasoning: pin a mid tier
+# so a headless run can never inherit the caller's flagship model. Override via
+# PM_GRAPHIFY_MODEL / PM_GRAPHIFY_TIMEOUT_SECONDS.
+GRAPHIFY_MODEL = "sonnet"
+GRAPHIFY_MODEL_ENV = "PM_GRAPHIFY_MODEL"
 GRAPHIFY_TIMEOUT_SECONDS = 600
+GRAPHIFY_TIMEOUT_ENV = "PM_GRAPHIFY_TIMEOUT_SECONDS"
 
 
 class GraphNotBuiltError(RuntimeError):
@@ -269,15 +276,27 @@ def map_surprises_to_supersession_candidates(
     return candidates
 
 
+def _graphify_timeout_seconds() -> int:
+    raw = os.environ.get(GRAPHIFY_TIMEOUT_ENV)
+    if not raw:
+        return GRAPHIFY_TIMEOUT_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return GRAPHIFY_TIMEOUT_SECONDS
+    return value if value > 0 else GRAPHIFY_TIMEOUT_SECONDS
+
+
 def run_full_build(corpus_root: Path) -> subprocess.CompletedProcess:
     prompt = CLAUDE_BUILD_PROMPT.format(root=corpus_root)
     cmd = [
         "claude", "-p", prompt,
+        "--model", os.environ.get(GRAPHIFY_MODEL_ENV) or GRAPHIFY_MODEL,
         "--permission-mode", CLAUDE_PERMISSION_MODE,
         "--output-format", CLAUDE_OUTPUT_FORMAT,
     ]
     result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=GRAPHIFY_TIMEOUT_SECONDS,
+        cmd, capture_output=True, text=True, timeout=_graphify_timeout_seconds(),
     )
     if result.returncode != 0:
         raise RuntimeError(f"full build failed: {result.stderr}")

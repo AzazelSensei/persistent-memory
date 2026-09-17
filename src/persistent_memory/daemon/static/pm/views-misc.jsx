@@ -101,14 +101,10 @@
     const results = useMemo(() => {
       if (!q.trim()) return [];
       const lq = q.toLowerCase();
-      return PM.all.map((r) => {
-        let snippet = "", inSnip = false;
-        for (const sec of r.sections) {
-          if (sec.text.toLowerCase().includes(lq)) { snippet = sec.text; inSnip = true; break; }
-        }
-        const hit = r.title.toLowerCase().includes(lq) || r.id.toLowerCase().includes(lq) || r.tags.join(" ").toLowerCase().includes(lq) || inSnip;
-        return hit ? { r, snippet: snippet || r.sections[0].text } : null;
-      }).filter(Boolean).slice(0, 40);
+      return PM.all
+        .filter((r) => r.title.toLowerCase().includes(lq) || r.id.toLowerCase().includes(lq) || r.tags.join(" ").toLowerCase().includes(lq))
+        .slice(0, 40)
+        .map((r) => ({ r }));
     }, [q]);
 
     return (
@@ -122,9 +118,9 @@
         </div>
         {q.trim() ? (
           <>
-            <div className="se-meta"><span>{results.length} results</span><span>title · tag · content</span></div>
+            <div className="se-meta"><span>{results.length} results</span><span>title · tag · id</span></div>
             <div className="se-res">
-              {results.map(({ r, snippet }) => {
+              {results.map(({ r }) => {
                 const st = statuses[r.id] || r.status;
                 return (
                   <div key={r.id} className="pm-card se-card" onClick={() => nav("detail", { id: r.id })}>
@@ -134,7 +130,7 @@
                       <span className="pm-mono" style={{ fontSize: 11, color: "var(--faint)" }}>{r.id} · {r.project}</span>
                     </div>
                     <div className="ti">{hl(r.title, q)}</div>
-                    <div className="sn">{hl(snippet.length > 150 ? snippet.slice(0, 150) + "…" : snippet, q)}</div>
+                    {r.tags.length > 0 && <div className="sn">{r.tags.join(" · ")}</div>}
                   </div>
                 );
               })}
@@ -142,7 +138,7 @@
             </div>
           </>
         ) : (
-          <div className="pm-empty" style={{ paddingTop: 40 }}>Start typing to search. Content is indexed in both Turkish and English.</div>
+          <div className="pm-empty" style={{ paddingTop: 40 }}>Start typing to search by title, tag, or ID.</div>
         )}
       </div>
     );

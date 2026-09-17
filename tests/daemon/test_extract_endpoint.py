@@ -191,6 +191,49 @@ def test_prepare_extraction_input_resets_watermark_above_total(tmp_path, monkeyp
     assert info["is_baseline"] is False
 
 
+def test_prepare_extraction_input_baselines_large_first_run_by_default(tmp_path, monkeypatch):
+    monkeypatch.setenv(services.TRANSCRIPT_ROOTS_ENV, str(tmp_path))
+    transcript = tmp_path / "sess-big.jsonl"
+    _write_transcript(transcript, services.FIRST_RUN_MAX_MESSAGES + 1)
+    info = services.prepare_extraction_input(
+        transcript_path=str(transcript), records_dir=tmp_path
+    )
+    assert info["new_count"] == 0
+    assert info["is_baseline"] is True
+
+
+def test_prepare_extraction_input_force_processes_large_first_run(tmp_path, monkeypatch):
+    monkeypatch.setenv(services.TRANSCRIPT_ROOTS_ENV, str(tmp_path))
+    transcript = tmp_path / "sess-big.jsonl"
+    _write_transcript(transcript, services.FIRST_RUN_MAX_MESSAGES + 1)
+    info = services.prepare_extraction_input(
+        transcript_path=str(transcript), records_dir=tmp_path, force=True
+    )
+    assert info["new_count"] == services.FIRST_RUN_MAX_MESSAGES + 1
+    assert info["is_baseline"] is False
+    assert info["watermark_after"] == services.FIRST_RUN_MAX_MESSAGES + 1
+    assert info["complete"] is True
+
+
+def test_prepare_extraction_input_force_can_batch_from_start(tmp_path, monkeypatch):
+    monkeypatch.setenv(services.TRANSCRIPT_ROOTS_ENV, str(tmp_path))
+    transcript = tmp_path / "sess-batch.jsonl"
+    _write_transcript(transcript, 10)
+    services._write_watermark(services._watermark_path(tmp_path, "sess-batch"), 8)
+    info = services.prepare_extraction_input(
+        transcript_path=str(transcript),
+        records_dir=tmp_path,
+        force=True,
+        reset_watermark=True,
+        max_messages=3,
+    )
+    assert info["new_count"] == 3
+    assert info["watermark_before"] == 0
+    assert info["watermark_after"] == 3
+    assert info["complete"] is False
+    assert "mesaj 0" in open(info["slice_path"], encoding="utf-8").read()
+
+
 def test_prepare_extraction_input_rejects_path_outside_allowed_roots(tmp_path, monkeypatch):
     monkeypatch.setenv(services.TRANSCRIPT_ROOTS_ENV, str(tmp_path / "allowed"))
     transcript = tmp_path / "outside" / "sess-2.jsonl"
@@ -338,6 +381,30 @@ def test_extract_allowed_cwd_passes_add_dir_and_popen_cwd(tmp_path, monkeypatch)
     assert "--add-dir" in argv
     assert body["cwd"] in argv
     assert captured["kwargs"].get("cwd") == body["cwd"]
+
+
+def test_extract_endpoint_writes_batch_watermark_after_not_total(tmp_path, monkeypatch):
+    services.reset_extraction_state()
+    allowed = tmp_path / "allowed"
+    monkeypatch.setenv(services.TRANSCRIPT_ROOTS_ENV, str(allowed))
+    transcript = allowed / "sess-batch.jsonl"
+    _write_transcript(transcript, 10)
+    monkeypatch.setattr(services.subprocess, "Popen", lambda *a, **k: _FakeProc(returncode=None))
+    client = _client(tmp_path)
+    body = {
+        **_body(tmp_path),
+        "transcript_path": str(transcript),
+        "force": True,
+        "reset_watermark": True,
+        "max_messages": 4,
+    }
+    resp = client.post("/api/extract", json=body, headers={"X-PM-Token": _token(tmp_path)})
+    assert resp.status_code in (200, 202)
+    payload = resp.json()
+    assert payload["new_messages"] == 4
+    assert payload["watermark_after"] == 4
+    assert payload["complete"] is False
+    assert services._read_watermark(services._watermark_path(tmp_path, "sess-batch")) == 4
 
 
 def test_validate_cwd_rejects_system_path_with_default_roots(monkeypatch):

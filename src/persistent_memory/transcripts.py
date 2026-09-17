@@ -1,22 +1,30 @@
-"""Read-only access to Claude Code session transcripts (JSONL).
+"""Read-only access to agent session transcripts (JSONL).
 
-Discovers projects under ~/.claude/projects (filtering worktree/tmp/observer
-noise) and parses transcripts into role-tagged messages. Transcripts are
-append-only, which is what makes the daemon's
-incremental extraction model work: the daemon keeps a per-session message-count
-watermark and processes only the slice of messages added since the last run
-(see daemon/services.py). This module is the parsing layer underneath that —
-it never writes to a transcript.
+Discovers projects under ~/.claude/projects, ~/.codex/sessions, and
+~/.grok/sessions (filtering worktree/tmp/observer noise) and parses
+transcripts into role-tagged messages. Transcripts are append-only, which is
+what makes the daemon's incremental extraction model work: the daemon keeps a
+per-session message-count watermark and processes only the slice of messages
+added since the last run (see daemon/services.py). This module is the parsing
+layer underneath that — it never writes to a transcript.
 """
 
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import unquote
 
 PROJECTS_ROOT = Path.home() / ".claude" / "projects"
+CODEX_ROOT = Path.home() / ".codex"
+CODEX_SESSIONS_ROOT = CODEX_ROOT / "sessions"
+GROK_ROOT = Path.home() / ".grok"
+GROK_SESSIONS_ROOT = GROK_ROOT / "sessions"
+GROK_CHAT_HISTORY_FILENAME = "chat_history.jsonl"
 
 TRANSCRIPT_GLOB = "*.jsonl"
+TAIL_READ_BYTES = 65536
+MAX_TAIL_GROWTH_FACTOR = 8
 MESSAGE_TYPES = ("user", "assistant")
 TEXT_BLOCK_TYPE = "text"
 TOOL_USE_BLOCK_TYPE = "tool_use"
@@ -34,6 +42,9 @@ KIMI_TEXT_PART_TYPE = "text"
 KIMI_THINK_PART_TYPE = "think"
 KIMI_TOOL_CALL_EVENT_TYPE = "tool.call"
 KIMI_TOOL_RESULT_EVENT_TYPE = "tool.result"
+
+CODEX_TRANSCRIPT_TYPES = {"session_meta", "turn_context", "event_msg", "response_item", "compacted"}
+CODEX_CONTENT_TEXT_TYPES = {"input_text", "output_text", "text"}
 
 TOOL_INPUT_PREVIEW_LEN = 80
 
@@ -87,20 +98,71 @@ def _read_jsonl_lines(jsonl_path: Path):
 
 
 def _first_cwd(jsonl_path: Path) -> str | None:
+    summary_path = jsonl_path.parent / "summary.json"
+    if summary_path.is_file():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            info = summary.get("info") if isinstance(summary, dict) else None
+            if isinstance(info, dict) and info.get("cwd"):
+                return str(info["cwd"])
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
     for obj in _read_jsonl_lines(jsonl_path):
         cwd = obj.get("cwd")
         if cwd:
             return cwd
+        if obj.get("type") in {"session_meta", "turn_context"}:
+            payload = obj.get("payload")
+            if isinstance(payload, dict) and payload.get("cwd"):
+                return payload.get("cwd")
+    try:
+        if jsonl_path.resolve().is_relative_to(GROK_SESSIONS_ROOT.resolve()):
+            encoded = jsonl_path.parent.parent.name
+            decoded = unquote(encoded)
+            if decoded.startswith("/"):
+                return decoded
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _timestamp_in_chunk(chunk: bytes) -> str | None:
+    for line in reversed(chunk.split(b"\n")):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            obj = json.loads(stripped)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            continue
+        ts = obj.get("timestamp") if isinstance(obj, dict) else None
+        if ts:
+            return ts
     return None
 
 
 def _last_timestamp(jsonl_path: Path) -> str | None:
-    last = None
-    for obj in _read_jsonl_lines(jsonl_path):
-        ts = obj.get("timestamp")
-        if ts:
-            last = ts
-    return last
+    try:
+        size = jsonl_path.stat().st_size
+    except OSError:
+        return None
+    if size == 0:
+        return None
+
+    read_size = min(TAIL_READ_BYTES, size)
+    while True:
+        try:
+            with jsonl_path.open("rb") as handle:
+                handle.seek(size - read_size)
+                chunk = handle.read(read_size)
+        except OSError:
+            return None
+        timestamp = _timestamp_in_chunk(chunk)
+        if timestamp is not None:
+            return timestamp
+        if read_size >= size:
+            return None
+        read_size = min(read_size * MAX_TAIL_GROWTH_FACTOR, size)
 
 
 def _extract_text(content) -> tuple[str, bool]:
@@ -150,6 +212,29 @@ def _is_kimi_transcript(jsonl_path: Path) -> bool:
     return False
 
 
+def _is_codex_transcript(jsonl_path: Path) -> bool:
+    try:
+        if jsonl_path.resolve().is_relative_to(CODEX_ROOT.resolve()):
+            return True
+    except (OSError, ValueError):
+        pass
+    for obj in _read_jsonl_lines(jsonl_path):
+        return obj.get("type") in CODEX_TRANSCRIPT_TYPES
+    return False
+
+
+def _is_grok_transcript(jsonl_path: Path) -> bool:
+    """Grok chat history is named chat_history.jsonl or lives under ~/.grok."""
+    if jsonl_path.name == GROK_CHAT_HISTORY_FILENAME:
+        return True
+    try:
+        if jsonl_path.resolve().is_relative_to(GROK_ROOT.resolve()):
+            return True
+    except (OSError, ValueError):
+        pass
+    return False
+
+
 def _kimi_time_to_iso(time_ms: int | None) -> str | None:
     if time_ms is None:
         return None
@@ -188,6 +273,31 @@ def _summarize_kimi_tool_call(event: dict) -> str:
 def _summarize_kimi_tool_result(event: dict) -> str:
     tool_call_id = event.get("toolCallId") or event.get("parentUuid") or "?"
     return f"[tool_result {tool_call_id}]"
+
+
+def _extract_codex_content_text(content) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, dict):
+        text = content.get("text")
+        return str(text).strip() if text else ""
+    if not isinstance(content, list):
+        return ""
+    texts: list[str] = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") in CODEX_CONTENT_TEXT_TYPES:
+            texts.append(str(part.get("text") or ""))
+    return "\n".join(t for t in texts if t).strip()
+
+
+def _summarize_codex_function_call(payload: dict) -> str:
+    name = payload.get("name") or "tool"
+    arguments = str(payload.get("arguments") or "").strip()
+    if len(arguments) > TOOL_INPUT_PREVIEW_LEN:
+        arguments = arguments[:TOOL_INPUT_PREVIEW_LEN] + "…"
+    return f"[{name} {arguments}]" if arguments else f"[{name}]"
 
 
 def _read_kimi_transcript(jsonl_path: Path) -> list[Message]:
@@ -233,9 +343,151 @@ def _read_kimi_transcript(jsonl_path: Path) -> list[Message]:
     return messages
 
 
+def _read_codex_transcript(jsonl_path: Path) -> list[Message]:
+    messages: list[Message] = []
+    for obj in _read_jsonl_lines(jsonl_path):
+        timestamp = obj.get("timestamp")
+        obj_type = obj.get("type")
+        payload = obj.get("payload") or {}
+        if not isinstance(payload, dict):
+            continue
+
+        if obj_type == "event_msg":
+            event_type = payload.get("type")
+            if event_type != "user_message":
+                continue
+            text = str(payload.get("message") or "").strip()
+            if not text:
+                continue
+            messages.append(Message(role="user", text=text, timestamp=timestamp, is_tool=False))
+        elif obj_type == "response_item":
+            payload_type = payload.get("type")
+            if payload_type == "message":
+                role = payload.get("role")
+                if role not in MESSAGE_TYPES:
+                    continue
+                text = _extract_codex_content_text(payload.get("content"))
+                if text:
+                    messages.append(Message(role=role, text=text, timestamp=timestamp, is_tool=False))
+            elif payload_type == "function_call":
+                messages.append(
+                    Message(
+                        role="assistant",
+                        text=_summarize_codex_function_call(payload),
+                        timestamp=timestamp,
+                        is_tool=True,
+                    )
+                )
+            elif payload_type == "function_call_output":
+                call_id = payload.get("call_id") or "?"
+                messages.append(
+                    Message(
+                        role="user",
+                        text=f"[tool_result {call_id}]",
+                        timestamp=timestamp,
+                        is_tool=True,
+                    )
+                )
+    return messages
+
+
+def _extract_grok_text(content) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    texts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == TEXT_BLOCK_TYPE:
+            texts.append(str(block.get("text") or ""))
+        elif "text" in block and block.get("type") is None:
+            texts.append(str(block.get("text") or ""))
+    return "\n".join(t for t in texts if t).strip()
+
+
+def _is_grok_synthetic_user(obj: dict, text: str) -> bool:
+    if obj.get("synthetic_reason"):
+        return True
+    stripped = text.lstrip()
+    if stripped.startswith("<system-reminder>") or stripped.startswith("<user_info>"):
+        return True
+    if stripped.startswith("<executing_actions_with_care>"):
+        return True
+    return False
+
+
+def _summarize_grok_tool_call(call: dict) -> str:
+    name = call.get("name") or "tool"
+    raw_args = call.get("arguments")
+    preview = ""
+    if isinstance(raw_args, str) and raw_args.strip():
+        preview = raw_args.strip()
+        if len(preview) > TOOL_INPUT_PREVIEW_LEN:
+            preview = preview[:TOOL_INPUT_PREVIEW_LEN] + "…"
+    elif isinstance(raw_args, dict) and raw_args:
+        parts = []
+        for key, value in raw_args.items():
+            piece = str(value)
+            if len(piece) > TOOL_INPUT_PREVIEW_LEN:
+                piece = piece[:TOOL_INPUT_PREVIEW_LEN] + "…"
+            parts.append(f"{key}={piece}")
+        preview = " ".join(parts)
+    if preview:
+        return f"[{name} {preview}]"
+    return f"[{name}]"
+
+
+def _read_grok_transcript(jsonl_path: Path) -> list[Message]:
+    messages: list[Message] = []
+    for obj in _read_jsonl_lines(jsonl_path):
+        obj_type = obj.get("type")
+        timestamp = obj.get("timestamp")
+        if obj_type == "user":
+            text = _extract_grok_text(obj.get("content"))
+            if not text or _is_grok_synthetic_user(obj, text):
+                continue
+            messages.append(Message(role="user", text=text, timestamp=timestamp, is_tool=False))
+        elif obj_type == "assistant":
+            text = _extract_grok_text(obj.get("content"))
+            if text:
+                messages.append(
+                    Message(role="assistant", text=text, timestamp=timestamp, is_tool=False)
+                )
+            tool_calls = obj.get("tool_calls")
+            if isinstance(tool_calls, list):
+                for call in tool_calls:
+                    if not isinstance(call, dict):
+                        continue
+                    messages.append(
+                        Message(
+                            role="assistant",
+                            text=_summarize_grok_tool_call(call),
+                            timestamp=timestamp,
+                            is_tool=True,
+                        )
+                    )
+        elif obj_type == "tool_result":
+            call_id = obj.get("tool_call_id") or "?"
+            messages.append(
+                Message(
+                    role="user",
+                    text=f"[tool_result {call_id}]",
+                    timestamp=timestamp,
+                    is_tool=True,
+                )
+            )
+    return messages
+
+
 def read_transcript(jsonl_path: Path) -> list[Message]:
     if _is_kimi_transcript(jsonl_path):
         return _read_kimi_transcript(jsonl_path)
+    if _is_codex_transcript(jsonl_path):
+        return _read_codex_transcript(jsonl_path)
+    if _is_grok_transcript(jsonl_path):
+        return _read_grok_transcript(jsonl_path)
     messages: list[Message] = []
     for obj in _read_jsonl_lines(jsonl_path):
         if obj.get("type") not in MESSAGE_TYPES:
@@ -257,6 +509,44 @@ def project_transcripts(project_dir: Path) -> list[Path]:
     if not project_dir.is_dir():
         return []
     return sorted(project_dir.glob(TRANSCRIPT_GLOB))
+
+
+def _scan_transcript_file(transcript: Path) -> ProjectInfo | None:
+    cwd = _first_cwd(transcript)
+    if _is_noise_path(cwd):
+        return None
+    last_activity = _last_timestamp(transcript) or _mtime_iso(transcript)
+    return ProjectInfo(
+        name=Path(cwd or "").name or "unknown",
+        path=cwd or "",
+        dir=transcript.parent,
+        transcript_count=1,
+        session_ids=[transcript.stem],
+        last_activity=last_activity,
+        dirs=[transcript.parent],
+    )
+
+
+def _codex_project_infos() -> list[ProjectInfo]:
+    if not CODEX_SESSIONS_ROOT.is_dir():
+        return []
+    infos: list[ProjectInfo] = []
+    for transcript in sorted(CODEX_SESSIONS_ROOT.rglob(TRANSCRIPT_GLOB)):
+        info = _scan_transcript_file(transcript)
+        if info is not None:
+            infos.append(info)
+    return infos
+
+
+def _grok_project_infos() -> list[ProjectInfo]:
+    if not GROK_SESSIONS_ROOT.is_dir():
+        return []
+    infos: list[ProjectInfo] = []
+    for transcript in sorted(GROK_SESSIONS_ROOT.rglob(GROK_CHAT_HISTORY_FILENAME)):
+        info = _scan_transcript_file(transcript)
+        if info is not None:
+            infos.append(info)
+    return infos
 
 
 def _scan_dir(directory: Path) -> ProjectInfo | None:
@@ -304,18 +594,28 @@ def _merge(into: ProjectInfo, other: ProjectInfo) -> None:
 
 def list_projects(projects_root: Path = PROJECTS_ROOT) -> list[ProjectInfo]:
     root = Path(projects_root)
-    if not root.is_dir():
-        return []
     by_path: dict[str, ProjectInfo] = {}
-    for directory in sorted(root.iterdir()):
-        if not directory.is_dir():
-            continue
-        info = _scan_dir(directory)
-        if info is None:
-            continue
-        existing = by_path.get(info.path)
-        if existing is None:
-            by_path[info.path] = info
-        else:
-            _merge(existing, info)
+    if root.is_dir():
+        for directory in sorted(root.iterdir()):
+            if not directory.is_dir():
+                continue
+            info = _scan_dir(directory)
+            if info is None:
+                continue
+            existing = by_path.get(info.path)
+            if existing is None:
+                by_path[info.path] = info
+            else:
+                _merge(existing, info)
+    try:
+        include_extras = root.resolve() == PROJECTS_ROOT.resolve()
+    except OSError:
+        include_extras = False
+    if include_extras:
+        for info in _codex_project_infos() + _grok_project_infos():
+            existing = by_path.get(info.path)
+            if existing is None:
+                by_path[info.path] = info
+            else:
+                _merge(existing, info)
     return sorted(by_path.values(), key=lambda p: (p.last_activity or ""), reverse=True)

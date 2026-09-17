@@ -2,7 +2,7 @@
 (function () {
   const React = window.React;
   const { useState, useEffect } = React;
-  const { Icon } = window.PMUI;
+  const { Icon, pmById } = window.PMUI;
 
   if (!document.getElementById("pm-cand-css")) {
     const s = document.createElement("style");
@@ -33,7 +33,7 @@
 
   function RecordRef({ id, nav }) {
     if (!id) return <span className="rid none">record ID could not be resolved</span>;
-    const known = window.PM.byId && window.PM.byId[id];
+    const known = pmById(id);
     return <a className="rid" title={known ? known.title : id} onClick={() => known && nav("detail", { id })}>{id}</a>;
   }
 

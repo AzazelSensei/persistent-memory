@@ -67,6 +67,25 @@ class Record(BaseModel):
     superseded_by: list[str] = Field(default_factory=list, alias="superseded-by")
     salience: float = Field(ge=SALIENCE_MIN, le=SALIENCE_MAX)
 
+    @field_validator("tags", mode="before")
+    @classmethod
+    def coerce_numeric_tags(cls, value: object) -> object:
+        """Accept unquoted numeric YAML scalars as tags.
+
+        Extraction routinely writes status codes and ports (`- 504`, `- 9090`)
+        without quotes; YAML parses those as int/float, which used to fail
+        validation and drop the whole record from the index without a warning.
+
+        Booleans are deliberately left alone: YAML turns `- no` into False, and
+        coercing that to "False" would index a token the author never wrote.
+        """
+        if not isinstance(value, list):
+            return value
+        return [
+            str(item) if isinstance(item, (int, float)) and not isinstance(item, bool) else item
+            for item in value
+        ]
+
     @field_validator("id")
     @classmethod
     def validate_id_format(cls, value: str) -> str:

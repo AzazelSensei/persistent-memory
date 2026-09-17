@@ -3,9 +3,11 @@
 import datetime
 import json
 import re
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from persistent_memory.daemon import services
+from persistent_memory.transcripts import list_projects as list_transcript_projects
 from persistent_memory.daemon.config import (
     DECISIONS_DIRNAME,
     GRAPHIFY_OUT_DIRNAME,
@@ -29,6 +31,7 @@ RELATED_SIDECAR_NAME = "relationships.json"
 HEALTH_PAIRS_NAME = "health_pairs.json"
 ACTIVITY_LIMIT = 8
 UNEXPECTED_LIMIT = 10
+RECORD_ID_IN_PATH_RE = re.compile(r"([DLP]-\d{4})")
 STALE_AGE_DAYS = 90
 
 
@@ -117,19 +120,41 @@ def _community_labels(graph: dict, communities: set[int]) -> dict[int, str]:
     return labels
 
 
+def _node_record_id(node: dict, records_by_id: dict) -> str | None:
+    """Map one graph node onto a memory record.
+
+    Older graphs used the record id as the node id. graphify now emits one node
+    per semantic unit (`d0001_decision`, `concept_tdd`) and carries the record
+    only in `source_file`, so fall back to that before giving up.
+    """
+    node_id = str(node.get("id", ""))
+    if node_id in records_by_id:
+        return node_id
+    match = RECORD_ID_IN_PATH_RE.search(str(node.get("source_file") or ""))
+    if match and match.group(1) in records_by_id:
+        return match.group(1)
+    return None
+
+
 def build_graph_payload(graph: dict | None, records_by_id: dict) -> dict:
     empty = {"clusters": [], "nodes": [], "edges": [], "adjacency": {}}
     if not graph:
         return empty
-    node_community: dict[str, int] = {}
-    nodes: list[dict] = []
+    node_to_record: dict[str, str] = {}
+    community_votes: dict[str, Counter] = defaultdict(Counter)
     for node in graph.get("nodes", []):
-        record_id = node["id"]
-        record = records_by_id.get(record_id)
-        if record is None:
+        record_id = _node_record_id(node, records_by_id)
+        if record_id is None:
             continue
-        community = node.get("community") or 0
-        node_community[record_id] = community
+        node_to_record[str(node.get("id", ""))] = record_id
+        community_votes[record_id][node.get("community") or 0] += 1
+
+    node_community: dict[str, int] = {
+        record_id: votes.most_common(1)[0][0] for record_id, votes in community_votes.items()
+    }
+    nodes: list[dict] = []
+    for record_id, community in node_community.items():
+        record = records_by_id[record_id]
         nodes.append(
             {
                 "id": record_id,
@@ -152,21 +177,31 @@ def build_graph_payload(graph: dict | None, records_by_id: dict) -> dict:
     edges: list[dict] = []
     adjacency: dict[str, list[tuple[str, float]]] = {}
     cross_edges: list[dict] = []
+    best_edge: dict[tuple[str, str], dict] = {}
     for link in graph.get("links", []):
-        source, target = link.get("source"), link.get("target")
-        if source not in node_community or target not in node_community:
+        source = node_to_record.get(str(link.get("source")))
+        target = node_to_record.get(str(link.get("target")))
+        if source is None or target is None or source == target:
             continue
         conf = float(link.get("confidence_score") or link.get("weight") or 0.0)
-        is_cross = node_community[source] != node_community[target]
-        edge = {
+        key = (source, target) if source <= target else (target, source)
+        existing = best_edge.get(key)
+        if existing is not None:
+            if conf > existing["conf"]:
+                existing["conf"] = round(conf, 2)
+                existing["type"] = link.get("relation") or existing["type"]
+            continue
+        best_edge[key] = {
             "from": source,
             "to": target,
             "type": link.get("relation") or "related",
             "conf": round(conf, 2),
             "unexpected": False,
         }
+    for (source, target), edge in best_edge.items():
+        conf = edge["conf"]
         edges.append(edge)
-        if is_cross:
+        if node_community[source] != node_community[target]:
             cross_edges.append(edge)
         adjacency.setdefault(source, []).append((target, conf))
         adjacency.setdefault(target, []).append((source, conf))
@@ -237,21 +272,55 @@ def _load_all_records(records_dir: Path) -> list[dict]:
     return records
 
 
+def _merge_project_entry(entry: dict, info: dict) -> None:
+    entry["conv"] += info["transcript_count"]
+    entry["last"] = max(entry["last"], _date_str(info["last_activity"]))
+
+
+def _record_counts_by_project(records: list[dict]) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    for record in records:
+        entry = counts.setdefault(record["project"], {"dec": 0, "les": 0})
+        key = "les" if record["kind"] == "lesson" else "dec"
+        entry[key] += 1
+    return counts
+
+
 def _build_projects(records: list[dict], *, projects_root: Path, records_dir: Path) -> list[dict]:
-    overview = services.project_overview(projects_root=projects_root, records_dir=records_dir)
-    projects: list[dict] = []
-    for index, info in enumerate(overview):
-        projects.append(
-            {
-                "id": info["name"],
-                "name": info["name"],
-                "dec": info["decisions_count"],
-                "les": info["lessons_count"],
-                "conv": info["transcript_count"],
-                "last": _date_str(info["last_activity"]),
-                "color": PALETTE[index % len(PALETTE)],
-            }
-        )
+    counts = _record_counts_by_project(records)
+    by_name: dict[str, dict] = {}
+    for info in list_transcript_projects(projects_root):
+        entry = by_name.get(info.name)
+        if entry is not None:
+            _merge_project_entry(
+                entry, {"transcript_count": info.transcript_count, "last_activity": info.last_activity}
+            )
+            continue
+        project_counts = counts.get(info.name, {"dec": 0, "les": 0})
+        by_name[info.name] = {
+            "id": info.name,
+            "name": info.name,
+            "dec": project_counts["dec"],
+            "les": project_counts["les"],
+            "conv": info.transcript_count,
+            "last": _date_str(info.last_activity),
+            "color": "",
+        }
+    for project, project_counts in counts.items():
+        if project in by_name:
+            continue
+        by_name[project] = {
+            "id": project,
+            "name": project,
+            "dec": project_counts["dec"],
+            "les": project_counts["les"],
+            "conv": 0,
+            "last": "",
+            "color": "",
+        }
+    projects = list(by_name.values())
+    for index, entry in enumerate(projects):
+        entry["color"] = PALETTE[index % len(PALETTE)]
     return projects
 
 
@@ -348,22 +417,23 @@ def build_pm_payload(cfg) -> dict:
         ][:RELATED_LIMIT]
 
     ordered = sorted(records, key=lambda r: (r["date"], r["id"]), reverse=True)
-    decisions = [r for r in ordered if r["kind"] == "decision"]
-    lessons = [r for r in ordered if r["kind"] == "lesson"]
     projects = _build_projects(records, projects_root=cfg.projects_root, records_dir=cfg.records_dir)
+    activity = _build_activity(records)
+    health = _build_health(cfg.records_dir, records)
+    stats = _build_stats(records, graph_payload, projects)
+
+    for record in ordered:
+        record.pop("sections", None)
 
     return {
         "projects": projects,
-        "decisions": decisions,
-        "lessons": lessons,
         "all": ordered,
-        "byId": records_by_id,
-        "activity": _build_activity(records),
-        "health": _build_health(cfg.records_dir, records),
+        "activity": activity,
+        "health": health,
         "clusters": graph_payload["clusters"],
         "nodes": graph_payload["nodes"],
         "edges": graph_payload["edges"],
-        "stats": _build_stats(records, graph_payload, projects),
+        "stats": stats,
     }
 
 

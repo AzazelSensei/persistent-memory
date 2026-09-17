@@ -7,14 +7,18 @@ Read-only JSON (no token):
     GET /api/health, /api/metrics, /api/records, /api/candidates,
         /api/supersession-candidates, /api/recall, /api/prompt-recall,
         /api/search, /api/projects, /api/projects/{project},
-        /api/records/{id}/source, /api/records/{id}/raw
+        /api/records/{id}/source, /api/records/{id}/raw,
+        /api/records/{id}/sections,
+        /api/council/board, /api/council/threads,
+        /api/agent-assets, /api/agent-assets/{asset_id}/raw
 
 Mutating JSON (require X-PM-Token):
     POST /api/records (create decision or lesson on demand),
          /api/records/{id}/body, /api/records/accept-all,
          /api/records/{id}/accept, /api/records/{id}/reject,
          /api/records/{old}/supersede-by/{new}, /api/consolidate,
-         /api/extract, /api/supersession-candidates/dismiss
+         /api/extract, /api/supersession-candidates/dismiss,
+         /api/council/board, /api/agent-assets/{asset_id}
 
 HTML dashboard:
     GET /, /app, /legacy, /decisions, /lessons, /records/{id}, /projects,
@@ -41,7 +45,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 import json
 
 from persistent_memory import i18n as _i18n
+from persistent_memory.council.api import register_council_routes
 from persistent_memory.daemon import dashboard_data, services
+from persistent_memory.daemon.agent_assets import register_agent_asset_routes
+from persistent_memory.daemon.live import register_live_routes
 from persistent_memory.daemon.config import (
     DECISIONS_DIRNAME,
     HEARTBEAT_MESSAGE_THRESHOLD,
@@ -65,6 +72,8 @@ from persistent_memory.schema import ID_PATTERN
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
+STATIC_ASSET_GLOB = "pm/*.jsx"
+ASSET_VERSION_FALLBACK = "0"
 ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 TOKEN_HEADER = "X-PM-Token"
 SEARCH_TOP_K_MIN = 1
@@ -93,6 +102,9 @@ class ExtractRequest(BaseModel):
     flush: bool | None = None
     reason: str | None = None
     branch: str | None = None
+    force: bool | None = None
+    reset_watermark: bool | None = None
+    max_messages: int | None = None
 
 
 class BodyUpdate(BaseModel):
@@ -156,6 +168,16 @@ async def _run_consolidation_async(cfg: DaemonConfig) -> None:
     )
 
 
+def static_asset_version() -> str:
+    try:
+        stamps = [path.stat().st_mtime_ns for path in STATIC_DIR.glob(STATIC_ASSET_GLOB)]
+    except OSError:
+        return ASSET_VERSION_FALLBACK
+    if not stamps:
+        return ASSET_VERSION_FALLBACK
+    return str(max(stamps))
+
+
 def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI:
     cfg = config or DaemonConfig(records_dir=Path(records_dir))
     token = load_or_create_token(cfg.records_dir)
@@ -166,6 +188,7 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
         if cfg.watch_enabled:
             observer = _start_observer(cfg, asyncio.get_running_loop())
         try:
+            await asyncio.to_thread(services.warm_retrieval, records_dir=cfg.records_dir)
             yield
         finally:
             if observer is not None:
@@ -300,10 +323,17 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
         q: str = Query(...),
         project: str | None = Query(default=None),
         budget: int = Query(default=services.PROMPT_RECALL_BUDGET_TOKENS),
+        top_k: int = Query(default=services.PROMPT_RECALL_TOP_K, ge=1, le=20),
+        minimum_relevance: float = Query(default=0.0, ge=0.0, le=1.0),
     ):
         try:
             block = services.run_prompt_recall(
-                q, records_dir=cfg.records_dir, project=project, budget=budget
+                q,
+                records_dir=cfg.records_dir,
+                project=project,
+                budget=budget,
+                top_k=top_k,
+                minimum_relevance=minimum_relevance,
             )
         except Exception:
             block = ""
@@ -362,6 +392,20 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
         except (FileNotFoundError, KeyError, ValueError):
             raise HTTPException(status_code=404, detail=f"record not found: {record_id}")
         return {"id": record_id, "body": body}
+
+    @app.get("/api/records/{record_id}/sections")
+    def get_record_sections(record_id: str):
+        from persistent_memory.records import read_record_by_id
+
+        if not ID_PATTERN.match(record_id):
+            raise HTTPException(status_code=422, detail=f"malformed id: {record_id}")
+        try:
+            record, body = read_record_by_id(cfg.records_dir, record_id)
+        except (FileNotFoundError, KeyError, ValueError):
+            raise HTTPException(status_code=404, detail=f"record not found: {record_id}")
+        kind = "lesson" if record.type.value == "lesson" else "decision"
+        sections, _source = dashboard_data.split_record_sections(body, kind)
+        return {"id": record_id, "sections": sections}
 
     @app.post("/api/records/{record_id}/body", dependencies=[Depends(require_token)])
     def post_record_body(record_id: str, payload: BodyUpdate):
@@ -445,6 +489,9 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
             transcript_path=body.transcript_path,
             records_dir=cfg.records_dir,
             branch=body.branch,
+            force=bool(body.force),
+            reset_watermark=bool(body.reset_watermark),
+            max_messages=body.max_messages,
         )
         return JSONResponse(content=result, status_code=HTTP_ACCEPTED)
 
@@ -462,6 +509,7 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
                 "pm_json": dashboard_data.pm_payload_json(cfg),
                 "pm_token": token,
                 "pm_i18n_json": json.dumps(_i18n.ui_strings(), ensure_ascii=False),
+                "pm_asset_version": static_asset_version(),
             },
         )
 
@@ -558,5 +606,9 @@ def create_app(records_dir: Path, config: DaemonConfig | None = None) -> FastAPI
         return templates.TemplateResponse(
             request, "graph.html", {"has_graph": cfg.graph_html_path.exists()}
         )
+
+    register_council_routes(app, cfg, require_token)
+    register_live_routes(app, cfg)
+    register_agent_asset_routes(app, cfg, require_token)
 
     return app

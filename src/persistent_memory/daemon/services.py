@@ -16,6 +16,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import frontmatter
 
@@ -123,7 +124,16 @@ DEFAULT_TOP_K = 5
 _RECORDS_CACHE_LOCK = threading.Lock()
 _RECORDS_CACHE: dict[str, tuple[tuple, list, set]] = {}
 _INDEX_LOCK = threading.Lock()
-_INDEX_CACHE: dict[str, tuple[tuple, object]] = {}
+_INDEX_CACHE: dict[str, tuple[tuple, Any]] = {}
+
+# Prompt hooks can arrive concurrently (for example, several agent/tool loops
+# starting together). A corpus fingerprint is O(number-of-records) filesystem
+# work, so concurrent callers share the one in-flight scan. Unlike a TTL cache,
+# a later sequential call still rescans immediately and observes file changes.
+_FINGERPRINT_CONDITION = threading.Condition()
+_FINGERPRINT_INFLIGHT: set[str] = set()
+_FINGERPRINT_RESULTS: dict[str, tuple] = {}
+_RETRIEVAL_ADAPTER_CACHE: dict[str, tuple[tuple, tuple, object]] = {}
 
 
 PROMPT_RECALL_METRIC = "prompt_recall_count"
@@ -167,6 +177,55 @@ def _records_fingerprint(records_dir: Path) -> tuple:
     return tuple(entries)
 
 
+def _records_fingerprint_singleflight(records_dir: Path) -> tuple:
+    """Share one in-flight corpus scan among concurrent callers.
+
+    Once that cohort finishes, a later call starts a fresh scan so direct file
+    edits are visible immediately; there is no time-based stale window.
+    """
+    key = str(Path(records_dir))
+    with _FINGERPRINT_CONDITION:
+        if key in _FINGERPRINT_INFLIGHT:
+            while key in _FINGERPRINT_INFLIGHT:
+                _FINGERPRINT_CONDITION.wait()
+            return _FINGERPRINT_RESULTS[key]
+        _FINGERPRINT_INFLIGHT.add(key)
+    try:
+        fingerprint = _records_fingerprint(Path(records_dir))
+    except BaseException:
+        with _FINGERPRINT_CONDITION:
+            _FINGERPRINT_INFLIGHT.discard(key)
+            _FINGERPRINT_CONDITION.notify_all()
+        raise
+    with _FINGERPRINT_CONDITION:
+        _FINGERPRINT_RESULTS[key] = fingerprint
+        _FINGERPRINT_INFLIGHT.discard(key)
+        _FINGERPRINT_CONDITION.notify_all()
+    return fingerprint
+
+
+def _invalidate_runtime_caches(records_dir: Path) -> None:
+    """Invalidate corpus-derived caches after a watcher-observed change."""
+    key = str(Path(records_dir))
+    with _FINGERPRINT_CONDITION:
+        _FINGERPRINT_RESULTS.pop(key, None)
+    with _RECORDS_CACHE_LOCK:
+        _RECORDS_CACHE.pop(key, None)
+    with _INDEX_LOCK:
+        _RETRIEVAL_ADAPTER_CACHE.pop(key, None)
+
+
+def _clear_runtime_caches() -> None:
+    """Clear process caches (test/support helper; safe between daemon runs)."""
+    with _FINGERPRINT_CONDITION:
+        _FINGERPRINT_RESULTS.clear()
+    with _RECORDS_CACHE_LOCK:
+        _RECORDS_CACHE.clear()
+    with _INDEX_LOCK:
+        _INDEX_CACHE.clear()
+        _RETRIEVAL_ADAPTER_CACHE.clear()
+
+
 def _load_views_and_demote(records_dir: Path) -> tuple[list, set]:
     from persistent_memory.lint import collect_records
     from persistent_memory.retriever import adapt_loaded_record
@@ -184,24 +243,26 @@ def _load_views_and_demote(records_dir: Path) -> tuple[list, set]:
     return views, demote
 
 
-def _cached_views_and_demote(records_dir: Path) -> tuple[list, set]:
-    # Lock pattern: locked read -> unlocked (slow) build -> locked write.
-    # Concurrent misses may build the same views twice, but the lock is never
-    # held during disk I/O, so requests do not serialize behind a rebuild.
+def _cached_views_and_demote(
+    records_dir: Path, fingerprint: tuple | None = None
+) -> tuple[list, set]:
     key = str(records_dir)
-    fingerprint = _records_fingerprint(records_dir)
+    if fingerprint is None:
+        fingerprint = _records_fingerprint(records_dir)
     with _RECORDS_CACHE_LOCK:
         cached = _RECORDS_CACHE.get(key)
         if cached is not None and cached[0] == fingerprint:
             return cached[1], cached[2]
-    views, demote = _load_views_and_demote(records_dir)
-    with _RECORDS_CACHE_LOCK:
+        # Keep the miss build under the lock. Corpus changes are infrequent;
+        # duplicate parsing of thousands of markdown files is far worse than
+        # making concurrent readers wait for the single builder.
+        views, demote = _load_views_and_demote(records_dir)
         _RECORDS_CACHE[key] = (fingerprint, views, demote)
-    return views, demote
+        return views, demote
 
 
-def _collect_embed_views(records_dir: Path) -> list:
-    return _cached_views_and_demote(records_dir)[0]
+def _collect_embed_views(records_dir: Path, fingerprint: tuple | None = None) -> list:
+    return _cached_views_and_demote(records_dir, fingerprint)[0]
 
 
 def _index_stamp(index_dir: Path) -> tuple:
@@ -236,7 +297,9 @@ def _refresh_index_stamp_locked(records_dir: Path, index) -> None:
     _INDEX_CACHE[str(index_dir)] = (_index_stamp(index_dir), index)
 
 
-def _build_retrieval_adapter(records_dir: Path, views: list):
+def _build_retrieval_adapter(
+    records_dir: Path, views: list, fingerprint: tuple | None = None
+):
     from persistent_memory.embeddings import (
         OllamaEmbedder,
         RetrievalAdapter,
@@ -244,10 +307,21 @@ def _build_retrieval_adapter(records_dir: Path, views: list):
         embed_record as _embed,
     )
 
-    embedder = OllamaEmbedder()
-    # Unlike the read caches above, index writes stay fully serialized under
-    # _INDEX_LOCK: concurrent upsert+save on the same files would corrupt them.
+    key = str(Path(records_dir))
+    if fingerprint is None:
+        fingerprint = _records_fingerprint(records_dir)
+    # Index synchronization is single-flight. More importantly, once a corpus
+    # fingerprint + persisted index stamp has been synchronized, subsequent
+    # requests return the adapter directly instead of repeating an O(N)
+    # content-hash pass while holding _INDEX_LOCK.
     with _INDEX_LOCK:
+        index_dir = Path(records_dir) / INDEX_DIRNAME
+        stamp = _index_stamp(index_dir)
+        cached = _RETRIEVAL_ADAPTER_CACHE.get(key)
+        if cached is not None and cached[0] == fingerprint and cached[1] == stamp:
+            return cached[2]
+
+        embedder = OllamaEmbedder()
         index = _shared_index_locked(records_dir)
         changed = False
         for view in views:
@@ -259,16 +333,32 @@ def _build_retrieval_adapter(records_dir: Path, views: list):
         if changed:
             index.save()
             _refresh_index_stamp_locked(records_dir, index)
-    return RetrievalAdapter(embedder, index)
+        stamp = _index_stamp(index_dir)
+        adapter = RetrievalAdapter(embedder, index)
+        _RETRIEVAL_ADAPTER_CACHE[key] = (fingerprint, stamp, adapter)
+        return adapter
 
 
-def _build_demote_ids(records_dir: Path) -> set[str]:
+def _build_demote_ids(records_dir: Path, fingerprint: tuple | None = None) -> set[str]:
     """Records to demote at retrieval time: superseded (outdated) records.
 
     An outdated record should not outrank its current replacement. Demotion
     only — superseded records stay visible so contradictions remain auditable.
     """
-    return _cached_views_and_demote(records_dir)[1]
+    return _cached_views_and_demote(records_dir, fingerprint)[1]
+
+
+def warm_retrieval(*, records_dir: Path) -> None:
+    from persistent_memory.retriever import _cached_bm25
+
+    fingerprint = _records_fingerprint_singleflight(records_dir)
+    views = _collect_embed_views(records_dir, fingerprint)
+    if not views:
+        return
+    adapter = _build_retrieval_adapter(records_dir, views, fingerprint)
+    _build_demote_ids(records_dir, fingerprint)
+    _cached_bm25(views)
+    adapter.embed_query("")
 
 
 def run_search(query: str, *, records_dir: Path, top_k: int = DEFAULT_TOP_K) -> list[dict]:
@@ -276,15 +366,16 @@ def run_search(query: str, *, records_dir: Path, top_k: int = DEFAULT_TOP_K) -> 
 
     from persistent_memory.retriever import search
 
-    views = _collect_embed_views(records_dir)
+    fingerprint = _records_fingerprint_singleflight(records_dir)
+    views = _collect_embed_views(records_dir, fingerprint)
     candidates = search(
         query,
         project=None,
         records=views,
-        embedder=_build_retrieval_adapter(records_dir, views),
+        embedder=_build_retrieval_adapter(records_dir, views, fingerprint),
         now=date.today().isoformat(),
         top_k=top_k,
-        demote_ids=_build_demote_ids(records_dir),
+        demote_ids=_build_demote_ids(records_dir, fingerprint),
     )
     return [
         {
@@ -329,6 +420,7 @@ def _preferred_gist_headings(record_id: str) -> tuple[str, ...]:
 def run_prompt_recall(
     query: str, *, records_dir: Path, project: str | None,
     top_k: int = PROMPT_RECALL_TOP_K, budget: int = PROMPT_RECALL_BUDGET_TOKENS,
+    minimum_relevance: float = 0.0,
 ) -> str:
     bump_metric(PROMPT_RECALL_METRIC)
     if not query or not query.strip():
@@ -338,7 +430,9 @@ def run_prompt_recall(
     except Exception:
         logger.warning("prompt-recall search failed (project=%s)", project, exc_info=True)
         return ""
-    return _format_prompt_recall_block(candidates, budget=budget)
+    return _format_prompt_recall_block(
+        candidates, budget=budget, minimum_relevance=minimum_relevance
+    )
 
 
 CROSS_PROJECT_MAX = 2
@@ -372,12 +466,13 @@ def _search_for_prompt_recall(query: str, *, records_dir: Path, project: str | N
 
     from persistent_memory.retriever import search
 
-    views = _collect_embed_views(records_dir)
+    fingerprint = _records_fingerprint_singleflight(records_dir)
+    views = _collect_embed_views(records_dir, fingerprint)
     if not views:
         return []
-    adapter = _build_retrieval_adapter(records_dir, views)
+    adapter = _build_retrieval_adapter(records_dir, views, fingerprint)
     now = date.today().isoformat()
-    demote = _build_demote_ids(records_dir)
+    demote = _build_demote_ids(records_dir, fingerprint)
     primary = search(
         query, project=project, records=views, embedder=adapter, now=now,
         top_k=top_k, demote_ids=demote,
@@ -388,13 +483,17 @@ def _search_for_prompt_recall(query: str, *, records_dir: Path, project: str | N
     return primary + _cross_project_hits(query, views, adapter, now, project, seen, demote)
 
 
-def _format_prompt_recall_block(candidates: list, *, budget: int) -> str:
+def _format_prompt_recall_block(
+    candidates: list, *, budget: int, minimum_relevance: float = 0.0
+) -> str:
     if not candidates:
         return ""
     header = t(PROMPT_RECALL_HEADER_KEY)
     lines = [header]
     used = _estimate_recall_tokens(header)
     for candidate in candidates:
+        if float(candidate.score or 0.0) < minimum_relevance:
+            continue
         view = candidate.record
         gist = _gist_from_body(view.body, preferred_headings=_preferred_gist_headings(view.id))
         line = f"- [{view.id}] {view.title} ({view.project}): {gist}"
@@ -455,17 +554,13 @@ def run_lint(*, records_dir: Path) -> dict:
 
     errors: list[str] = []
     conflicts: list[str] = []
-    for dirname in (DECISIONS_DIRNAME, LESSONS_DIRNAME):
-        directory = Path(records_dir) / dirname
-        if not directory.is_dir():
-            continue
-        report = _lint(directory, today=date.today())
-        for finding in report.findings:
-            line = f"[{finding.check}] {finding.record_id}: {finding.message}"
-            if finding.check == SUPERSESSION_CHECK:
-                conflicts.append(line)
-            elif finding.severity >= Severity.ERROR:
-                errors.append(line)
+    report = _lint(Path(records_dir), today=date.today())
+    for finding in report.findings:
+        line = f"[{finding.check}] {finding.record_id}: {finding.message}"
+        if finding.check == SUPERSESSION_CHECK:
+            conflicts.append(line)
+        elif finding.severity >= Severity.ERROR:
+            errors.append(line)
     return {"errors": errors, "conflicts": conflicts}
 
 
@@ -612,6 +707,9 @@ def embed_record(path: Path, *, records_dir: Path) -> None:
         index.upsert(view.id, vector, content_hash)
         index.save()
         _refresh_index_stamp_locked(records_dir, index)
+    # Do this after releasing _INDEX_LOCK; invalidation also clears the cached
+    # adapter under that lock.
+    _invalidate_runtime_caches(records_dir)
 
 
 def _current_salience_map(records_dir: Path) -> dict[str, float]:
@@ -815,13 +913,14 @@ def project_detail(*, project: str, projects_root: Path, records_dir: Path) -> d
 
 CODEX_ROOT = Path.home() / ".codex"
 KIMI_ROOT = Path.home() / ".kimi-code"
+GROK_ROOT = Path.home() / ".grok"
 
 
 def _extraction_backend_for(transcript_path: "Path | str | None") -> str:
     """Return host-specific backend for the transcript path.
 
-    Codex transcripts live under ~/.codex, Kimi transcripts under ~/.kimi-code;
-    everything else defaults to the Claude backend.
+    Rule: each host extracts with itself — never cross-host fallback.
+    Codex → codex, Kimi → kimi, Grok → grok, Claude (and unknown) → claude.
     """
     if transcript_path is None:
         return "claude"
@@ -831,6 +930,8 @@ def _extraction_backend_for(transcript_path: "Path | str | None") -> str:
             return "codex"
         if resolved.is_relative_to(KIMI_ROOT.resolve()):
             return "kimi"
+        if resolved.is_relative_to(GROK_ROOT.resolve()):
+            return "grok"
     except (TypeError, ValueError):
         pass
     return "claude"
@@ -844,15 +945,26 @@ EXTRACTION_STARTED_STATUS = "started"
 EXTRACTION_RUNNING_STATUS = "already-running"
 EXTRACTION_BASELINE_STATUS = "baseline-set"
 EXTRACTION_NO_NEW_STATUS = "no-new-messages"
+EXTRACTION_BACKEND_UNAVAILABLE_STATUS = "backend-unavailable"
 EXTRACTION_LOG_DIRNAME = "extraction-logs"
 WATERMARK_DIRNAME = "extraction-watermarks"
 SLICE_DIRNAME = "extraction-slices"
 FIRST_RUN_MAX_MESSAGES = 60
+DEFAULT_MAX_SLICE_MESSAGES = None
 EXTRA_PATH_DIRS = (
     Path.home() / ".local" / "bin",
+    Path.home() / ".grok" / "bin",
     Path("/opt/homebrew/bin"),
     Path("/usr/local/bin"),
 )
+
+
+class ExtractionBackendError(RuntimeError):
+    """Host CLI for this transcript source is missing; do not cross-host fall back."""
+
+    def __init__(self, backend: str, message: str):
+        super().__init__(message)
+        self.backend = backend
 
 EXTRACTION_MAX_SECONDS = 900
 
@@ -892,8 +1004,13 @@ def _resolve_claude_bin(env: dict) -> str:
 
 
 def _resolve_codex_bin(env: dict) -> str | None:
-    from persistent_memory.extraction_prompt import CODEX_BIN
+    from persistent_memory.extraction_prompt import CODEX_APP_BIN, CODEX_BIN, CODEX_BIN_ENV
 
+    override = env.get(CODEX_BIN_ENV)
+    if override:
+        return override
+    if CODEX_APP_BIN.is_file():
+        return str(CODEX_APP_BIN)
     return shutil.which(CODEX_BIN, path=env.get("PATH"))
 
 
@@ -901,6 +1018,26 @@ def _resolve_kimi_bin(env: dict) -> str | None:
     from persistent_memory.extraction_prompt import KIMI_BIN
 
     return shutil.which(KIMI_BIN, path=env.get("PATH"))
+
+
+def _resolve_grok_bin(env: dict) -> str | None:
+    from persistent_memory.extraction_prompt import (
+        GROK_BIN,
+        GROK_BIN_ENV,
+        GROK_HOME_BIN,
+        GROK_USER_BIN,
+    )
+
+    override = env.get(GROK_BIN_ENV)
+    if override:
+        return override
+    for candidate in (GROK_USER_BIN, GROK_HOME_BIN):
+        try:
+            if candidate.is_file():
+                return str(candidate.resolve())
+        except OSError:
+            continue
+    return shutil.which(GROK_BIN, path=env.get("PATH"))
 
 
 def _index_subdir(records_dir: Path | None, name: str) -> Path:
@@ -943,6 +1080,7 @@ DEFAULT_TRANSCRIPT_ROOTS = (
     Path.home() / ".claude" / "projects",
     Path.home() / ".codex",
     Path.home() / ".kimi-code",
+    Path.home() / ".grok",
 )
 CWD_ROOTS_ENV = "PM_CWD_ROOTS"
 DEFAULT_CWD_ROOTS = (Path.home(),)
@@ -996,7 +1134,24 @@ def _checked_cwd(cwd: str) -> str:
     return cwd
 
 
-def prepare_extraction_input(*, transcript_path: str, records_dir: Path | None) -> dict:
+def _normalize_max_messages(max_messages: int | None) -> int | None:
+    if max_messages is None:
+        return DEFAULT_MAX_SLICE_MESSAGES
+    try:
+        value = int(max_messages)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_SLICE_MESSAGES
+    return value if value > 0 else DEFAULT_MAX_SLICE_MESSAGES
+
+
+def prepare_extraction_input(
+    *,
+    transcript_path: str,
+    records_dir: Path | None,
+    force: bool = False,
+    reset_watermark: bool = False,
+    max_messages: int | None = None,
+) -> dict:
     from persistent_memory.transcripts import read_transcript
 
     resolved = _validate_transcript_path(transcript_path)
@@ -1004,21 +1159,33 @@ def prepare_extraction_input(*, transcript_path: str, records_dir: Path | None) 
     messages = [m for m in read_transcript(resolved) if m.text and not m.is_tool]
     total = len(messages)
     wm_path = _watermark_path(records_dir, session_id)
-    watermark = _read_watermark(wm_path)
+    watermark = 0 if reset_watermark else _read_watermark(wm_path)
     # A watermark above the message count means the transcript was truncated
     # or replaced (e.g. session restart); reset rather than skip everything.
     if watermark > total:
         watermark = 0
     base = {"session_id": session_id, "total": total, "wm_path": str(wm_path)}
-    if watermark <= 0 and total > FIRST_RUN_MAX_MESSAGES:
+    if not force and watermark <= 0 and total > FIRST_RUN_MAX_MESSAGES:
         return {**base, "new_count": 0, "is_baseline": True}
     new = messages[watermark:] if watermark > 0 else messages
     if not new:
         return {**base, "new_count": 0, "is_baseline": False}
+    limit = _normalize_max_messages(max_messages)
+    if limit is not None:
+        new = new[:limit]
+    watermark_after = watermark + len(new)
     safe = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id) or "unknown"
     slice_path = _index_subdir(records_dir, SLICE_DIRNAME) / f"{safe}-{time.strftime('%Y%m%d-%H%M%S')}.txt"
     slice_path.write_text("\n\n".join(f"[{m.role}] {m.text}" for m in new), encoding="utf-8")
-    return {**base, "new_count": len(new), "is_baseline": False, "slice_path": str(slice_path)}
+    return {
+        **base,
+        "new_count": len(new),
+        "is_baseline": False,
+        "slice_path": str(slice_path),
+        "watermark_before": watermark,
+        "watermark_after": watermark_after,
+        "complete": watermark_after >= total,
+    }
 
 
 DEDUP_CONTEXT_TOP_K = 12
@@ -1056,35 +1223,39 @@ def _build_argv_for_backend(
 ) -> tuple[list[str], str]:
     """Return (argv, executable) for the given backend.
 
-    Falls back to claude backend (with a warning) when the codex binary is
-    missing so extraction never crashes due to a missing CLI tool.
+    Host purity: codex/kimi/grok/claude each use their own CLI. Missing host
+    binary raises ``ExtractionBackendError`` — never cross-host fall back
+    (e.g. Grok session must not spawn Claude).
     """
     from persistent_memory.daemon.token import default_records_dir
     from persistent_memory.extraction_prompt import (
         build_codex_extraction_argv,
         build_extraction_argv,
+        build_grok_extraction_argv,
         build_kimi_extraction_argv,
     )
 
     if backend == "codex":
         codex_bin = _resolve_codex_bin(env)
         if codex_bin is None:
-            logger.warning(
-                "codex binary not found; falling back to claude backend for this extraction"
-            )
-        else:
-            rdir = Path(records_dir) if records_dir else default_records_dir()
-            argv = build_codex_extraction_argv(prompt=prompt, records_dir=rdir)
-            return argv, codex_bin
+            raise ExtractionBackendError("codex", "codex binary not found")
+        rdir = Path(records_dir) if records_dir else default_records_dir()
+        argv = build_codex_extraction_argv(prompt=prompt, records_dir=rdir)
+        return argv, codex_bin
     if backend == "kimi":
         kimi_bin = _resolve_kimi_bin(env)
         if kimi_bin is None:
-            logger.warning(
-                "kimi binary not found; falling back to claude backend for this extraction"
-            )
-        else:
-            argv = build_kimi_extraction_argv(prompt=prompt, cwd=cwd)
-            return argv, kimi_bin
+            raise ExtractionBackendError("kimi", "kimi binary not found")
+        argv = build_kimi_extraction_argv(prompt=prompt, cwd=cwd)
+        return argv, kimi_bin
+    if backend == "grok":
+        grok_bin = _resolve_grok_bin(env)
+        if grok_bin is None:
+            raise ExtractionBackendError("grok", "grok binary not found")
+        rdir = Path(records_dir) if records_dir else default_records_dir()
+        repo_root = str(rdir.parent)
+        argv = build_grok_extraction_argv(prompt=prompt, cwd=repo_root)
+        return argv, grok_bin
     argv = build_extraction_argv(prompt=prompt, cwd=cwd)
     claude_bin = _resolve_claude_bin(env)
     return argv, claude_bin
@@ -1092,7 +1263,8 @@ def _build_argv_for_backend(
 
 def trigger_extraction(
     *, project: str, cwd: str, transcript_path: str | None = None, records_dir: Path | None = None,
-    branch: str | None = None,
+    branch: str | None = None, force: bool = False, reset_watermark: bool = False,
+    max_messages: int | None = None,
 ) -> dict:
     from persistent_memory.extraction_prompt import build_extraction_prompt
 
@@ -1105,7 +1277,11 @@ def trigger_extraction(
         if transcript_path:
             try:
                 slice_info = prepare_extraction_input(
-                    transcript_path=transcript_path, records_dir=records_dir
+                    transcript_path=transcript_path,
+                    records_dir=records_dir,
+                    force=force,
+                    reset_watermark=reset_watermark,
+                    max_messages=max_messages,
                 )
             except TranscriptPathError:
                 logger.warning("extraction transcript path rejected: %s", transcript_path, exc_info=True)
@@ -1133,16 +1309,32 @@ def trigger_extraction(
             prompt = f"{prompt}\nTranscript file for this session (open it with Read): {transcript_path}\n"
         backend = _extraction_backend_for(transcript_path)
         env = _extraction_env()
-        argv, executable = _build_argv_for_backend(
-            backend, prompt=prompt, cwd=cwd or "", records_dir=records_dir, env=env
-        )
+        try:
+            argv, executable = _build_argv_for_backend(
+                backend, prompt=prompt, cwd=cwd or "", records_dir=records_dir, env=env
+            )
+        except ExtractionBackendError as exc:
+            logger.warning(
+                "extraction backend unavailable for host=%s project=%s: %s",
+                exc.backend,
+                project,
+                exc,
+            )
+            return {
+                "status": EXTRACTION_BACKEND_UNAVAILABLE_STATUS,
+                "project": project,
+                "backend": exc.backend,
+            }
         log_path = _extraction_log_path(records_dir, project)
         log_handle = open(log_path, "w", encoding="utf-8")
         try:
+            proc_cwd = cwd or None
+            if backend in {"codex", "grok"} and records_dir is not None:
+                proc_cwd = str(Path(records_dir).parent)
             proc = subprocess.Popen(
                 argv,
                 executable=executable,
-                cwd=cwd or None,
+                cwd=proc_cwd,
                 env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=log_handle,
@@ -1153,9 +1345,17 @@ def trigger_extraction(
             log_handle.close()
         _extraction_procs[project] = (proc, time.monotonic())
         if slice_info is not None:
-            _write_watermark(Path(slice_info["wm_path"]), slice_info["total"])
+            _write_watermark(Path(slice_info["wm_path"]), slice_info.get("watermark_after", slice_info["total"]))
         bump_metric(EXTRACTION_STARTED_METRIC)
-        result = {"status": EXTRACTION_STARTED_STATUS, "project": project, "log": str(log_path)}
+        result = {
+            "status": EXTRACTION_STARTED_STATUS,
+            "project": project,
+            "log": str(log_path),
+            "backend": backend,
+        }
         if slice_info is not None:
             result["new_messages"] = slice_info["new_count"]
+            result["total"] = slice_info["total"]
+            result["watermark_after"] = slice_info.get("watermark_after", slice_info["total"])
+            result["complete"] = bool(slice_info.get("complete", True))
         return result

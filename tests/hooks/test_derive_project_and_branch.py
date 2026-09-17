@@ -33,7 +33,7 @@ def _git(cwd: Path, *args: str) -> None:
 def _init_repo(path: Path, branch: str = "main") -> Path:
     path.mkdir(parents=True, exist_ok=True)
     _git(path, "init", "-b", branch)
-    _git(path, "config", "user.email", "test@test.com")
+    _git(path, "config", "user.email", "developer@example.com")
     _git(path, "config", "user.name", "Test User")
     _git(path, "commit", "--allow-empty", "-m", "initial")
     return path

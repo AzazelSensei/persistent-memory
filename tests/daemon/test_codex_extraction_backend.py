@@ -121,6 +121,18 @@ class TestBuildCodexExtractionArgv:
         argv = ep.build_codex_extraction_argv(prompt="EXTRACT THIS", records_dir=Path("/tmp/rec"))
         assert argv[-1] == "EXTRACT THIS"
 
+    def test_default_model_is_quality_model(self, monkeypatch):
+        monkeypatch.delenv("PM_CODEX_EXTRACTION_MODEL", raising=False)
+        argv = ep.build_codex_extraction_argv(prompt="P", records_dir=Path("/tmp/rec"))
+        idx = argv.index("-m")
+        assert argv[idx + 1] == "gpt-5.5"
+
+    def test_default_reasoning_effort_is_xhigh(self, monkeypatch):
+        monkeypatch.delenv("PM_CODEX_EXTRACTION_REASONING_EFFORT", raising=False)
+        argv = ep.build_codex_extraction_argv(prompt="P", records_dir=Path("/tmp/rec"))
+        idx = argv.index("-c")
+        assert argv[idx + 1] == 'model_reasoning_effort="xhigh"'
+
     def test_no_model_flag_when_default_model_is_empty(self, monkeypatch):
         monkeypatch.delenv("PM_CODEX_EXTRACTION_MODEL", raising=False)
         monkeypatch.setattr(ep, "CODEX_EXTRACTION_MODEL", "")
@@ -143,6 +155,33 @@ class TestBuildCodexExtractionArgv:
         assert "-m" in argv
         idx = argv.index("-m")
         assert argv[idx + 1] == "from-env"
+
+    def test_reasoning_effort_env_override_wins_over_constant(self, monkeypatch):
+        monkeypatch.setattr(ep, "CODEX_EXTRACTION_REASONING_EFFORT", "low")
+        monkeypatch.setenv("PM_CODEX_EXTRACTION_REASONING_EFFORT", "medium")
+        argv = ep.build_codex_extraction_argv(prompt="P", records_dir=Path("/tmp/rec"))
+        idx = argv.index("-c")
+        assert argv[idx + 1] == 'model_reasoning_effort="medium"'
+
+
+class TestResolveCodexBin:
+    def test_env_override_wins(self, monkeypatch):
+        env = {ep.CODEX_BIN_ENV: "/tmp/custom-codex"}
+        assert services._resolve_codex_bin(env) == "/tmp/custom-codex"
+
+    def test_prefers_codex_app_binary(self, tmp_path, monkeypatch):
+        app_bin = tmp_path / "Codex.app" / "Contents" / "Resources" / "codex"
+        app_bin.parent.mkdir(parents=True)
+        app_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+        monkeypatch.setattr(ep, "CODEX_APP_BIN", app_bin)
+        monkeypatch.setattr(services.shutil, "which", lambda *args, **kwargs: "/usr/local/bin/codex")
+        assert services._resolve_codex_bin({}) == str(app_bin)
+
+    def test_falls_back_to_path(self, tmp_path, monkeypatch):
+        missing_app = tmp_path / "missing-codex"
+        monkeypatch.setattr(ep, "CODEX_APP_BIN", missing_app)
+        monkeypatch.setattr(services.shutil, "which", lambda *args, **kwargs: "/usr/local/bin/codex")
+        assert services._resolve_codex_bin({}) == "/usr/local/bin/codex"
 
 
 # ---------------------------------------------------------------------------
@@ -266,16 +305,16 @@ class TestExtractEndpointCodexRouting:
 
 
 # ---------------------------------------------------------------------------
-# 4. Codex binary missing → fallback to claude + warning
+# 4. Codex binary missing → host-pure skip (no Claude cross-fallback)
 # ---------------------------------------------------------------------------
 
-class TestCodexBinaryMissingFallback:
-    def test_missing_codex_falls_back_to_claude(self, tmp_path, monkeypatch, caplog):
+class TestCodexBinaryMissingNoCrossFallback:
+    def test_missing_codex_does_not_cross_host_fallback(self, tmp_path, monkeypatch, caplog):
         import logging
 
         services.reset_extraction_state()
         monkeypatch.delenv(services.TRANSCRIPT_ROOTS_ENV, raising=False)
-        # Make shutil.which return None for "codex"
+        monkeypatch.setattr(ep, "CODEX_APP_BIN", tmp_path / "missing-codex-app-bin")
         real_which = services.shutil.which
 
         def fake_which(name, **kwargs):
@@ -318,8 +357,7 @@ class TestCodexBinaryMissingFallback:
                 transcript_path=codex_transcript,
                 records_dir=tmp_path,
             )
-        assert result["status"] == services.EXTRACTION_STARTED_STATUS
-        # Falls back to claude
-        assert captured["argv"][0] == "claude"
-        # Warning must be logged
+        assert result["status"] == services.EXTRACTION_BACKEND_UNAVAILABLE_STATUS
+        assert result["backend"] == "codex"
+        assert "argv" not in captured
         assert any("codex" in rec.message.lower() for rec in caplog.records)

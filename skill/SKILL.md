@@ -1,39 +1,60 @@
 ---
 name: persistent-memory
-description: Use when Claude Code needs a memory layer that AUTOMATICALLY remembers decisions/lessons; every 5 messages it extracts decisions (what/why) and mistakes/learnings from the conversation, merges three memories (claude-mem + graphify + persistent), searches with local embeddings, and injects a fixed-budget recall block at the start of the next session. Fully local, no extra API key.
+description: Use when any coding agent (Claude Code, Codex, Kimi, Grok) needs the local persistent-memory layer — search past decisions/lessons, record a decision/lesson now, or verify daemon/hooks. Automatically extracts decisions (what/why) and mistakes every ~5 messages, embeds with local Ollama bge-m3, and injects fixed-budget recall. Local records and embeddings; extraction and Council use the configured agent providers.
 trigger: persistent-memory
 ---
 
 # persistent-memory
 
-This skill runs AUTOMATICALLY in the background: every 5 messages, decisions (what/why) and mistakes/learnings (what/why/when noticed) are extracted from the accumulated conversation, embedded with local Ollama bge-m3, and at session start the relevant records are injected into context as a fixed ~1200-token recall block. Since extraction is a mechanical task it runs on Sonnet 4.6 (~70% cheaper than Opus, equivalent quality — measured by benchmark). Everything runs LOCALLY; no extra API key is required (headless `claude -p` uses subscription auth). The hook contract is identical in Claude Code, Codex, and Kimi Code CLI.
+This skill runs AUTOMATICALLY in the background: every 5 messages, decisions (what/why) and mistakes/learnings (what/why/when noticed) are extracted from the accumulated conversation, embedded with local Ollama bge-m3, and at session start the relevant records are injected into context as a fixed ~1200-token recall block. Extraction uses the CLI matching the transcript source. Records and embeddings are local; extraction and Council prompts, and memories recalled into hosted agent sessions, may be sent to the configured model provider. Existing CLI authentication is used, and provider quotas or charges still apply. Hooks are supported on Claude Code, Codex CLI, Kimi Code CLI, and Grok CLI.
 
 Triggering, embedding and recall are managed by the daemon (`127.0.0.1:37778`). Hooks only send signals; the heavy work happens in the daemon, debounced. When the daemon is down, hooks pass silently without blocking the session.
 
-Hooks inject memory automatically (PUSH). You can also query memory ACTIVELY via the **read-only MCP tools** (PULL): mid-task, when you wonder "what did we decide about this before?", use `search_memory(query)`, `get_record(id)`, `list_recent()`, `get_record_provenance(id)`.
+Hooks inject memory automatically (PUSH) where the host supports context injection. You MUST also use memory ACTIVELY via MCP tools (PULL): mid-task, when you wonder "what did we decide about this before?", use `search_memory(query)`, `get_record(id)`, `list_recent()`, `get_record_provenance(id)`. For "record this now" moments, use `create_record(record_type, title, project, body, tags, salience, session, cwd, agent, branch)`.
 
-## Whatever agent is using this (Claude / Codex / other AI)
+## Grok CLI (xAI) — required PULL habits
+
+On Grok, passive hook stdout may not inject context the same way Claude does. Treat MCP as the primary memory path:
+
+1. Before non-trivial work (architecture, deploy, debug, first touch of a domain/entity), call `search_memory` (via MCP `persistent-memory__search_memory`).
+2. If a side-channel recall file exists at `~/.grok/persistent-memory/last-recall.md`, read it once at the start of a task when relevant.
+3. Use `create_record` with `agent="grok"` when the user wants something recorded immediately.
+4. Transcripts live under `~/.grok/sessions/<url-encoded-cwd>/<session_id>/chat_history.jsonl` and are extracted by the daemon when hooks fire.
+
+## Whatever agent is using this (Claude / Codex / Kimi / Grok / other AI)
 
 The agent reading this skill may not be Claude Code — the system is agent-agnostic and can be used in three ways:
 
-1. **Automatic flow (hooks)** — the hook contract is identical in Claude Code, Codex CLI, and Kimi Code CLI; `install.sh` writes hooks for all three tools. Recall injection and extraction triggering happen on their own; the agent does not need to do anything.
-2. **Mid-task query (MCP, the recommended PULL path)** — the `persistent-memory` MCP server is registered with Claude, Codex, and Kimi; any MCP-capable agent can call `search_memory(query, top_k)`, `get_record(id)`, `list_recent(type, limit)`, `get_record_provenance(id)` directly.
+1. **Automatic flow (hooks)** — Claude / Codex / Kimi / Grok; `install.sh` writes hooks for each host. Recall injection and extraction triggering happen on their own when the host supports them; the agent should still PULL via MCP when unsure.
+2. **Mid-task use (MCP, the recommended PULL path)** — the `persistent-memory` MCP server is registered with Claude, Codex, Kimi, and Grok; any MCP-capable agent can call `search_memory(query, top_k)`, `get_record(id)`, `list_recent(type, limit)`, `get_record_provenance(id)` directly, and can create an immediate proposed record with `create_record(record_type, title, project, body, tags, salience, session, cwd, agent, branch)`.
 3. **Plain HTTP (agents or scripts without hooks/MCP)** — the daemon runs on localhost; read endpoints need no token:
    - `curl 'http://127.0.0.1:37778/api/search?q=QUERY&top_k=5'` — hybrid search
    - `curl 'http://127.0.0.1:37778/api/prompt-recall?q=QUERY&project=PROJECT'` — memory block to append to a prompt
    - `curl 'http://127.0.0.1:37778/api/recall?project=PROJECT'` — session-start recall block
    - `curl 'http://127.0.0.1:37778/api/records/D-0001/raw'` — record body
-   - Write endpoints (`/api/extract`, accept/reject, `/api/consolidate`) require the `X-PM-Token` header. The token file lives in the MEMORY repo (the daemon's records root), NOT in the project you are currently working in — discover it via `GET /api/health` (`records_dir` field): `<records_dir>/.pm-index/daemon.token`.
+   - Mutation endpoints (`/api/records`, `/api/extract`, accept/reject, `/api/consolidate`) require the `X-PM-Token` header. The token file lives in the MEMORY repo (the daemon's records root), NOT in the project you are currently working in — discover it via `GET /api/health` (`records_dir` field): `<records_dir>/.pm-index/daemon.token`.
 
-Notes: (a) The slash commands below are Claude Code-specific; on other agents use the HTTP endpoint or direct file write described in the "Writing records" section below. (b) Extraction uses per-source backends: Codex transcripts (`~/.codex/...`) are processed by `codex exec`; Claude transcripts and manual `/api/extract` calls use `claude -p`. Without the relevant CLI, automatic record creation falls back gracefully (kimi→claude if `kimi` is missing, codex→claude if `codex` is missing; all CLIs absent → recall/search keep working in degraded mode, only auto-write is disabled). (c) Records are plain markdown (`docs/decisions/*.md`, `docs/lessons/*.md`); worst case, any agent can read the files directly.
+Notes: (a) The slash commands below are Claude Code-specific; on other agents use the HTTP endpoint or direct file write described in the "Writing records" section below. (b) Extraction is **host-pure** — each transcript source spawns its own CLI, no cross-host fallback: Claude (`~/.claude/...`) → `claude -p`; Codex (`~/.codex/...`) → `codex exec`; Kimi (`~/.kimi-code/...`) → `kimi -p`; Grok (`~/.grok/.../chat_history.jsonl`) → `grok -p --always-approve`. If that host's binary is missing, extraction is skipped (`backend-unavailable`); search/recall keep working. Env overrides: `PM_CODEX_EXTRACTION_MODEL`, `PM_KIMI_EXTRACTION_MODEL`, `PM_GROK_EXTRACTION_MODEL` / `PM_GROK_EXTRACTION_EFFORT`, `PM_GROK_BIN`. (c) Records are plain markdown (`docs/decisions/*.md`, `docs/lessons/*.md`); worst case, any agent can read the files directly.
 
 ## Writing records (any agent)
 
 ### 1. Primary: automatic extraction
 
-Most records are created automatically via the extraction worker every 5 messages. The HTTP and file-write paths below are for "record this NOW" moments when you need to capture something immediately without waiting for the next extraction cycle.
+Most records are created automatically via the extraction worker every 5 messages. The MCP, HTTP, and file-write paths below are for "record this NOW" moments when you need to capture something immediately without waiting for the next extraction cycle.
 
-### 2. HTTP (any agent)
+### 2. MCP (MCP-capable agents)
+
+Use `create_record(record_type, title, project, body, tags, salience, session, cwd, agent, branch)`.
+
+- `record_type`: `"decision"` or `"lesson"`
+- `title`: required record title
+- `project`: required project/category name
+- `body`: optional markdown body using the canonical headings; omit to use the template
+- `tags`, `salience`, `session`, `cwd`, `agent`, `branch`: optional metadata/provenance
+
+The MCP tool discovers `records_dir` via `/api/health`, reads `<records_dir>/.pm-index/daemon.token`, and calls `POST /api/records`; it does not expose the token in its response.
+
+### 3. HTTP (any agent)
 
 The `POST /api/records` endpoint creates a record on demand. It requires the `X-PM-Token` header.
 
@@ -68,7 +89,7 @@ Other write operations (same token):
 - Replace body (proposed only): `POST /api/records/{id}/body` with `{"body": "..."}`
 - Dismiss supersession candidate: `POST /api/supersession-candidates/dismiss`
 
-### 3. Direct file write (file-access agents)
+### 4. Direct file write (file-access agents)
 
 Records are plain markdown. An agent with file-system access may create `docs/decisions/D-XXXX.md` or `docs/lessons/L-XXXX.md` directly:
 
@@ -94,6 +115,35 @@ Records are plain markdown. An agent with file-system access may create `docs/de
    - **Lesson**: `## What happened`, `## Why`, `## When discovered`, `## General rule`, `## Source (transcript)`
 4. **Validate**: `./.venv/bin/python -m persistent_memory.lint docs` — must pass before considering the record complete.
 5. The file watcher auto-embeds new files; no extra action needed.
+
+## AI Council (multi-agent deliberation)
+
+A separate primitive layered on the same daemon: a shared, append-only project board (`docs/council/<project>/board.jsonl`) plus a guided deliberation mode where several AI CLIs (Claude, Codex, Grok — Kimi optional) debate one question over fixed rounds and a spokesperson synthesizes the outcome back into memory as a `proposed` D-record. Config: `.pm-council.yaml` in the project root.
+
+### Posting/reading the board (any MCP-capable agent)
+
+- `council_post(body, project, thread="general", kind="note", role=None, refs=None, author="agent")` — leave a note/question/critique/decision for whoever works on this project next, across sessions and hosts. Always pass your own identity as `author` (e.g. `"codex"`, `"grok"`) — the default `"agent"` is a placeholder, not an identity.
+- `council_read(project, thread=None, since=None, limit=20)` — catch up on the board, or poll incrementally by passing `since` (an `m-####` cursor from your last read).
+- `council_threads(project)` — see which threads exist and who is active before diving into one with `council_read`.
+
+`thread="general"` is free-form chat; an active council session uses its own thread id (e.g. `"c-0007"`).
+
+### Opening a council / watching it run
+
+- `council_open(project, topic, cwd, rounds=None)` — starts a deliberation session. Only one active session runs per project at a time; opening a second one while another is pending/running returns the id of the existing session instead of starting a new one.
+- `council_status(project, session_id=None)` — round-by-round member status (`done`/`failed`/`timeout`/`skipped`) and the resulting decision record id, if any. Poll this after `council_open` rather than guessing when a session finished.
+
+### If you are running AS a council member
+
+**Do not write to the board yourself, and do not call `create_record`.** The runner captures your answer and writes the board entry. Member subprocesses receive `PM_COUNCIL_READONLY=1`, which blocks this MCP server's `council_post` and `create_record` tools to avoid duplicate records. `council_read` and `search_memory` remain available.
+
+Council initial recall searches across all projects in the memory store; its project parameter scopes the board and session, not the recalled corpus. IDs, titles, and project names from other projects may enter the provider prompt.
+
+This flag is not an operating-system sandbox or a general read-only guarantee. Council currently launches Claude with `bypassPermissions`, Codex with `--dangerously-bypass-approvals-and-sandbox`, and Grok with `--always-approve`; their other tools can access the working environment. Run Council only in a trusted environment and review the selected project, members, and prompt before starting. This project exposes a local stdio MCP server and localhost HTTP API, not a hosted public MCP service.
+
+### What the human does
+
+The dashboard's Council tab has three sub-tabs: **Board** (free-form message stream, thread filter, post a note as a human), **Sessions** (start a session with a topic/round count/dry-run preview, watch it run turn-by-turn with live polling, cancel it, follow the link to the resulting decision record), **Prompt** (edit the global council prompt layer, see which line comes from code vs. `docs/council/prompt.md` vs. `.pm-council.yaml`, reset to default).
 
 ## Manual commands (override)
 

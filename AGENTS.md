@@ -23,7 +23,8 @@ src/persistent_memory/
   extraction_prompt.py prompt for the headless extraction worker
   consolidate.py       graph-based consolidation: communities, supersession candidates
   graph_ingest.py      read-only ingest from external memory stores
-  mcp_server.py        read-only MCP server (search/get/list/provenance)
+  mcp_server.py        stdio bridge to the local daemon: memory and Council MCP tools
+  council/             Council config, board, API, backends, sessions, and detached runner
   doctor.py            preflight prerequisite scanner/installer (stdlib-only by design)
   hooks/               thin hook entrypoints: signal the daemon, never do heavy work
   daemon/              FastAPI app, services, file watcher, launchd plist, dashboard (React JSX, no build step)
@@ -32,6 +33,8 @@ eval/                  retrieval quality benchmark (recall@k, MRR, nDCG@10, late
 ```
 
 Data flow: hooks (signal) → daemon (heavy work) → records → vector index → retrieval → recall injection. Hooks must stay thin; anything slow belongs in the daemon.
+
+Council flow: `council_open` → project `.pm-council.yaml` → append-only project board + relevant memory → fixed rounds → spokesperson synthesis → `proposed` decision record. Round one is parallel; later rounds are sequential so members can respond to the board. The project value scopes the board and session, not the Council recall lookup: it calls global search and can include another project's record ID, title, and project name in a member prompt.
 
 ## Verified commands
 
@@ -79,10 +82,20 @@ Always use `./.venv/bin/python` — the system python may not have the dependenc
 
 1. A hook posts to `/api/extract` with the transcript path and project.
 2. `prepare_extraction_input` validates the path against allow-listed roots, slices messages past the watermark, and writes a slice file.
-3. A detached source-specific extraction process reads the slice and writes new records under `docs/decisions/` / `docs/lessons/` (and nothing else — enforced by the prompt's security preamble). Claude/manual transcripts use `claude -p --model claude-sonnet-4-6`; Codex transcripts use `codex exec --ignore-user-config -m gpt-5.3-codex-spark -c model_reasoning_effort="low"`. `PM_CODEX_BIN` can pin the Codex CLI; otherwise the macOS Codex.app binary is preferred over PATH when present.
+3. A detached source-specific extraction process reads the slice and writes new records under `docs/decisions/` / `docs/lessons/` (and nothing else — enforced by the prompt's security preamble). It invokes the CLI that matches the transcript source; do not add a cross-host fallback without an explicit design and tests. Model and CLI options belong in the current backend implementation and configuration, not in this document.
 4. The file watcher notices new records and embeds them; a 900s timeout kills hung workers.
 
 Without the matching CLI installed, capture degrades gracefully: search/recall/MCP/HTTP keep working.
+
+## AI Council and MCP boundary
+
+Use Council for decisions that benefit from independent perspectives, not mechanical edits. `council_open(project, topic, cwd, rounds)` starts one session per project; inspect progress with `council_status`. The runner gives members shared recall and a project board, captures their outputs, and persists a spokesperson synthesis as a `proposed` record. A human must still review that record.
+
+`.pm-council.yaml` is optional and project-local. Keep it bounded: the implementation permits up to six members, five rounds, and 24 total calls including synthesis. Supported backends are Claude, Codex, Kimi, and Grok. Validate configuration through the Council config model and tests; do not loosen input validation for command-line fields.
+
+The MCP server is a stdio process that calls the local daemon; it is not a hosted MCP endpoint. It exposes memory reads, `create_record`, and Council board/session tools. Its local write token protects daemon mutations, but it does not provide a general sandbox.
+
+Council backends intentionally use provider-specific non-sandbox or approval-bypass modes. `PM_COUNCIL_READONLY=1` prevents a Council member from using this MCP server's `create_record` and `council_post`; it does not restrict filesystem, network, shell, or other tools. Treat Council prompts, board content, and recalled records as potentially leaving the machine through the configured hosted CLI provider. Global Council recall means this can include another project's record ID, title, and project name; do not treat the project argument as a corpus-isolation control. Subscription quotas, rate limits, and provider policies apply.
 
 ## Quality bar for contributions
 

@@ -31,6 +31,32 @@ def test_injects_recall_block_as_additional_context(monkeypatch, tmp_path, capsy
     assert "D-0007" in block["additionalContext"]
 
 
+def test_decision_prompt_injects_protocol_even_when_recall_empty(monkeypatch, tmp_path, capsys):
+    _isolate_state(monkeypatch, tmp_path)
+    monkeypatch.setattr(ups, "fetch_prompt_recall_block", lambda prompt, project: "")
+    monkeypatch.setattr(
+        ups, "t",
+        lambda key: "DECISION PROTOCOL" if key == ups.DECISION_PROTOCOL_KEY else key,
+    )
+    _feed(monkeypatch, {"cwd": "/tmp/p", "prompt": "önce hangisini yapalım, incele"})
+    assert ups.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["additionalContext"] == "DECISION PROTOCOL"
+
+
+def test_decision_prompt_combines_protocol_and_recall(monkeypatch, tmp_path, capsys):
+    _isolate_state(monkeypatch, tmp_path)
+    monkeypatch.setattr(ups, "fetch_prompt_recall_block", lambda prompt, project: "MEMORY")
+    monkeypatch.setattr(
+        ups, "t",
+        lambda key: "DECISION PROTOCOL" if key == ups.DECISION_PROTOCOL_KEY else key,
+    )
+    _feed(monkeypatch, {"cwd": "/tmp/p", "prompt": "mimari kararı değerlendir"})
+    assert ups.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["additionalContext"] == "DECISION PROTOCOL\n\nMEMORY"
+
+
 def test_passes_prompt_and_project_to_recall(monkeypatch, tmp_path, capsys):
     _isolate_state(monkeypatch, tmp_path)
     captured = {}

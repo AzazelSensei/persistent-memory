@@ -27,6 +27,7 @@
     spark: "M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18",
     close: "M6 6l12 12M18 6L6 18",
     filter: "M3 5h18l-7 8v5l-4 2v-7z",
+    council: "M8 4h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1l-3 3v-3H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM3 10v7l3-2h2",
   };
   function Icon({ name, size = 18, sw = 1.6, style }) {
     const d = P[name] || P.dot;
@@ -53,20 +54,35 @@
   // relative-ish date pretty
   function fmtDate(d) { return d.slice(5).replace("-", "/"); }
 
+  // safe PM.byId[id] lookup — guards against prototype pollution (id === "constructor" etc.)
+  function pmById(id) {
+    const PM = window.PM;
+    return PM && PM.byId && Object.prototype.hasOwnProperty.call(PM.byId, id) ? PM.byId[id] : null;
+  }
+
+  const UNSAFE_RECORD_ID_KEYS = ["__proto__", "constructor", "prototype"];
+
+  // safe PM.byId[id] = entry write — same prototype-pollution guard as pmById()
+  function registerPmRecord(entry) {
+    const PM = window.PM;
+    if (!PM || !PM.byId || !entry || !entry.id) return;
+    if (UNSAFE_RECORD_ID_KEYS.indexOf(entry.id) >= 0) return;
+    PM.byId[entry.id] = entry;
+  }
+
   // make [[D-0001]] / [[L-0082]] cross-references in body text clickable
   const REF_RE = /\[\[([DLP]-\d{4})(?:\|[^\]]*)?\]\]/g;
   function renderRefs(text, nav) {
     if (!text || text.indexOf("[[") < 0) return text;
-    const PM = window.PM;
     const out = [];
     let last = 0, m, k = 0;
     REF_RE.lastIndex = 0;
     while ((m = REF_RE.exec(text))) {
       if (m.index > last) out.push(text.slice(last, m.index));
       const id = m[1];
-      const known = PM && PM.byId && PM.byId[id];
+      const known = pmById(id);
       out.push(known
-        ? h("a", { key: "r" + (k++), className: "pm-ref", title: PM.byId[id].title, onClick: (e) => { e.stopPropagation(); nav && nav("detail", { id }); } }, id)
+        ? h("a", { key: "r" + (k++), className: "pm-ref", title: known.title, onClick: (e) => { e.stopPropagation(); nav && nav("detail", { id }); } }, id)
         : h("span", { key: "r" + (k++), className: "pm-ref missing", title: "record not found" }, id));
       last = m.index + m[0].length;
     }
@@ -74,5 +90,5 @@
     return out;
   }
 
-  window.PMUI = { Icon, StatusPill, Importance, KindTag, fmtDate, renderRefs, STATUS_LABEL, STATUS_FRIENDLY };
+  window.PMUI = { Icon, StatusPill, Importance, KindTag, fmtDate, renderRefs, pmById, registerPmRecord, STATUS_LABEL, STATUS_FRIENDLY };
 })();

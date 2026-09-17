@@ -36,6 +36,54 @@ def _assistant_text(cwd, text, ts):
     )
 
 
+def _codex_session_meta(cwd, ts):
+    return _line(
+        type="session_meta",
+        timestamp=ts,
+        payload={"id": "codex-session", "cwd": cwd},
+    )
+
+
+def _codex_user(text, ts):
+    return _line(
+        type="event_msg",
+        timestamp=ts,
+        payload={"type": "user_message", "message": text},
+    )
+
+
+def _codex_agent(text, ts):
+    return _line(
+        type="event_msg",
+        timestamp=ts,
+        payload={"type": "agent_message", "message": text, "phase": "commentary"},
+    )
+
+
+def _codex_assistant_response(text, ts):
+    return _line(
+        type="response_item",
+        timestamp=ts,
+        payload={
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": text}],
+        },
+    )
+
+
+def _codex_tool_call(ts):
+    return _line(
+        type="response_item",
+        timestamp=ts,
+        payload={
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": "{\"cmd\":\"ls\"}",
+        },
+    )
+
+
 def _assistant_tool(cwd, name, ts, **inp):
     return _line(
         type="assistant",
@@ -200,6 +248,51 @@ def test_read_transcript_parses_messages(projects_root):
     asst_text = next(m for m in messages if m.role == "assistant" and not m.is_tool)
     assert asst_text.text == "Evet, kontrol ediyorum."
     assert any(m.is_tool for m in messages)
+
+
+def test_read_transcript_parses_codex_rollout(tmp_path):
+    path = tmp_path / "rollout-codex.jsonl"
+    cwd = "/Users/dev/Desktop/project-codex"
+    _write_jsonl(
+        path,
+        [
+            _codex_session_meta(cwd, "2026-06-24T08:00:00.000Z"),
+            _codex_user("backend başlatma rutinini düzelt", "2026-06-24T08:00:01.000Z"),
+            _codex_agent("Logları kontrol ediyorum.", "2026-06-24T08:00:02.000Z"),
+            _codex_tool_call("2026-06-24T08:00:03.000Z"),
+            _codex_assistant_response("Sorun endpoint mapping idi.", "2026-06-24T08:00:04.000Z"),
+        ],
+    )
+
+    messages = transcripts.read_transcript(path)
+
+    assert [m.role for m in messages if not m.is_tool] == ["user", "assistant"]
+    assert messages[0].text == "backend başlatma rutinini düzelt"
+    non_tool = [m for m in messages if not m.is_tool]
+    assert non_tool[1].text == "Sorun endpoint mapping idi."
+    assert any(m.is_tool and "exec_command" in m.text for m in messages)
+
+
+def test_list_projects_includes_codex_sessions_by_default(tmp_path, monkeypatch):
+    claude_root = tmp_path / "claude-projects"
+    codex_root = tmp_path / "codex-sessions"
+    cwd = "/Users/dev/Desktop/project-codex"
+    _write_jsonl(
+        codex_root / "2026" / "06" / "24" / "rollout-codex.jsonl",
+        [
+            _codex_session_meta(cwd, "2026-06-24T08:00:00.000Z"),
+            _codex_user("codex session", "2026-06-24T08:00:01.000Z"),
+        ],
+    )
+    monkeypatch.setattr(transcripts, "PROJECTS_ROOT", claude_root)
+    monkeypatch.setattr(transcripts, "CODEX_SESSIONS_ROOT", codex_root)
+
+    projects = transcripts.list_projects(claude_root)
+
+    codex = next(p for p in projects if p.name == "project-codex")
+    assert codex.path == cwd
+    assert codex.transcript_count == 1
+    assert codex.last_activity == "2026-06-24T08:00:01.000Z"
 
 
 def test_read_transcript_skips_malformed(projects_root):

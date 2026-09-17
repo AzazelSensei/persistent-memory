@@ -18,6 +18,8 @@ venv/
 .ruff_cache/
 
 # persistent-memory runtime
+docs/
+.pm-council.yaml
 graphify-out/
 .pm-index/
 .index/

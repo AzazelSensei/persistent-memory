@@ -41,6 +41,26 @@ MESSAGES: dict[str, dict[str, str]] = {
             "alakalıysa dikkate al):"
         ),
     },
+    "decision_recall.protocol": {
+        "en": (
+            "## Decision-memory operating rule\n"
+            "If this message needs a decision, analysis, investigation, or plan: treat "
+            "relevant memory records as active constraints; verify uncertain decisions "
+            "against source files, logs, tests, or data; for review/investigate/evaluate "
+            "requests, first present findings, options, risks, and recommendation, and "
+            "do not start code changes unless approval or implementation intent is clear; "
+            "when implementation is decided, plan verification/tests too."
+        ),
+        "tr": (
+            "## Karar hafızası çalışma kuralı\n"
+            "Bu mesaj karar, analiz, araştırma veya planlama gerektiriyorsa: ilgili "
+            "hafıza kayıtlarını aktif kısıt olarak kullan; emin olmadığın kararları "
+            "kaynak dosyalar, loglar, testler veya veriyle doğrula; kontrol et/incele/"
+            "değerlendir/araştır isteklerinde önce bulgu, seçenek, risk ve öneriyi sun, "
+            "onay veya uygulama niyeti net değilse kod değişikliği başlatma; uygulama "
+            "kararı netleşirse doğrulama/test adımını da planla."
+        ),
+    },
     "session_start.critical.ollama_server": {
         "en": "ollama server is down",
         "tr": "ollama sunucusu kapalı",
@@ -138,6 +158,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Supersession",
         "tr": "Yenileme",
     },
+    "ui.nav.council": {
+        "en": "Council",
+        "tr": "Konsey",
+    },
     "ui.nav.review_queue": {
         "en": "Review queue",
         "tr": "İnceleme kuyruğu",
@@ -157,6 +181,34 @@ MESSAGES: dict[str, dict[str, str]] = {
     "ui.kpi.graph_edges": {
         "en": "graph edges",
         "tr": "graf kenarları",
+    },
+    "ui.live.new_records": {
+        "en": "new records",
+        "tr": "yeni kayıt",
+    },
+    "ui.live.new_record_single": {
+        "en": "new record",
+        "tr": "yeni kayıt",
+    },
+    "ui.live.go_to_list": {
+        "en": "Go to list",
+        "tr": "Listeye git",
+    },
+    "ui.live.live": {
+        "en": "Live",
+        "tr": "Canlı",
+    },
+    "ui.live.offline": {
+        "en": "Offline",
+        "tr": "Çevrimdışı",
+    },
+    "ui.live.reconnecting": {
+        "en": "Reconnecting…",
+        "tr": "Yeniden bağlanıyor…",
+    },
+    "ui.live.stream_status": {
+        "en": "Record stream",
+        "tr": "Kayıt akışı",
     },
     "ui.tweaks.theme": {
         "en": "Theme",
@@ -280,6 +332,367 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "No candidates. If the graph is stale, run consolidation first.",
         "tr": "Aday yok. Graf güncel değilse önce birleştirme çalıştırın.",
     },
+    # UI chrome — AI council board view
+    "ui.council.eyebrow": {
+        "en": "AI Council · live board",
+        "tr": "AI Konseyi · canlı akış",
+    },
+    "ui.council.heading": {
+        "en": "Council",
+        "tr": "Konsey",
+    },
+    "ui.council.live": {
+        "en": "Live",
+        "tr": "Canlı",
+    },
+    "ui.council.paused": {
+        "en": "Paused",
+        "tr": "Duraklatıldı",
+    },
+    "ui.council.updated": {
+        "en": "updated",
+        "tr": "güncellendi",
+    },
+    "ui.council.project": {
+        "en": "Project",
+        "tr": "Proje",
+    },
+    "ui.council.thread": {
+        "en": "Thread",
+        "tr": "İş parçacığı",
+    },
+    "ui.council.all_threads": {
+        "en": "All threads",
+        "tr": "Tüm iş parçacıkları",
+    },
+    "ui.council.empty": {
+        "en": "No messages in this project yet",
+        "tr": "Bu projede henüz mesaj yok",
+    },
+    "ui.council.placeholder": {
+        "en": "Write a note for the council…",
+        "tr": "Konsey için bir not yaz…",
+    },
+    "ui.council.send": {
+        "en": "Send",
+        "tr": "Gönder",
+    },
+    "ui.council.send_failed": {
+        "en": "Send failed",
+        "tr": "Gönderim başarısız",
+    },
+    "ui.council.turn": {
+        "en": "turn",
+        "tr": "tur",
+    },
+    "ui.council.fallback": {
+        "en": "fallback",
+        "tr": "yedek",
+    },
+    "ui.council.fallback_hint": {
+        "en": "captured from stdout fallback",
+        "tr": "stdout yedek yolundan yakalandı",
+    },
+    "ui.council.error": {
+        "en": "Couldn't reach the council board",
+        "tr": "Konsey panosuna ulaşılamadı",
+    },
+    "ui.council.error_hint": {
+        "en": "The daemon may be unreachable. It will keep retrying automatically.",
+        "tr": "Daemon'a ulaşılamıyor olabilir. Otomatik olarak yeniden denenecek.",
+    },
+    # UI chrome — AI council session panel
+    "ui.council.tab_board": {
+        "en": "Board",
+        "tr": "Pano",
+    },
+    "ui.council.tab_sessions": {
+        "en": "Sessions",
+        "tr": "Oturumlar",
+    },
+    "ui.council.tab_prompt": {
+        "en": "Prompt",
+        "tr": "Prompt",
+    },
+    "ui.council.new_session": {
+        "en": "New session",
+        "tr": "Yeni oturum",
+    },
+    "ui.council.topic": {
+        "en": "Topic",
+        "tr": "Konu",
+    },
+    "ui.council.topic_placeholder": {
+        "en": "What should the council decide?",
+        "tr": "Konsey ne karar versin?",
+    },
+    "ui.council.cwd": {
+        "en": "Working directory",
+        "tr": "Çalışma dizini",
+    },
+    "ui.council.cwd_placeholder": {
+        "en": "/absolute/path/to/project",
+        "tr": "/mutlak/yol/proje",
+    },
+    "ui.council.rounds": {
+        "en": "Rounds",
+        "tr": "Tur sayısı",
+    },
+    "ui.council.dry_run": {
+        "en": "Preview only (dry-run)",
+        "tr": "Önce dene (dry-run)",
+    },
+    "ui.council.start_session": {
+        "en": "Start session",
+        "tr": "Oturumu başlat",
+    },
+    "ui.council.preview_btn": {
+        "en": "Preview",
+        "tr": "Önizle",
+    },
+    "ui.council.dry_run_notice": {
+        "en": "Preview only — no session was started.",
+        "tr": "Sadece önizleme — oturum başlatılmadı.",
+    },
+    "ui.council.preview_heading": {
+        "en": "Prompt preview",
+        "tr": "Prompt önizleme",
+    },
+    "ui.council.sessions_empty": {
+        "en": "No sessions yet",
+        "tr": "Henüz oturum yok",
+    },
+    "ui.council.select_session": {
+        "en": "Select a session to see details",
+        "tr": "Ayrıntılar için bir oturum seçin",
+    },
+    "ui.council.members": {
+        "en": "members",
+        "tr": "üye",
+    },
+    "ui.council.rounds_count": {
+        "en": "rounds",
+        "tr": "tur",
+    },
+    "ui.council.created_at": {
+        "en": "created",
+        "tr": "oluşturuldu",
+    },
+    "ui.council.record_link": {
+        "en": "record",
+        "tr": "kayıt",
+    },
+    "ui.council.cancel": {
+        "en": "Cancel",
+        "tr": "İptal et",
+    },
+    "ui.council.cancel_confirm": {
+        "en": "Cancel this session?",
+        "tr": "Bu oturum iptal edilsin mi?",
+    },
+    "ui.council.yes": {
+        "en": "Yes",
+        "tr": "Evet",
+    },
+    "ui.council.no": {
+        "en": "No",
+        "tr": "Hayır",
+    },
+    "ui.council.cancel_failed": {
+        "en": "Cancel failed",
+        "tr": "İptal başarısız",
+    },
+    "ui.council.turn_matrix": {
+        "en": "Turn matrix",
+        "tr": "Tur matrisi",
+    },
+    "ui.council.synthesis_row": {
+        "en": "Synthesis",
+        "tr": "Sentez",
+    },
+    "ui.council.round_row_prefix": {
+        "en": "Round",
+        "tr": "Tur",
+    },
+    "ui.council.session_thread_heading": {
+        "en": "Session activity",
+        "tr": "Oturum akışı",
+    },
+    "ui.council.session_error": {
+        "en": "Couldn't start session",
+        "tr": "Oturum başlatılamadı",
+    },
+    "ui.council.session_detail_error": {
+        "en": "Couldn't load session",
+        "tr": "Oturum yüklenemedi",
+    },
+    "ui.council.no_synthesis_yet": {
+        "en": "Not reached yet",
+        "tr": "Henüz ulaşılmadı",
+    },
+    # UI chrome — AI council prompt tab
+    "ui.council.prompt_editor_heading": {
+        "en": "Global prompt",
+        "tr": "Genel prompt",
+    },
+    "ui.council.prompt_is_default": {
+        "en": "This is the default prompt — not yet customized.",
+        "tr": "Bu varsayılan prompt — henüz özelleştirilmedi.",
+    },
+    "ui.council.prompt_load_error": {
+        "en": "Couldn't load the prompt",
+        "tr": "Prompt yüklenemedi",
+    },
+    "ui.council.save_prompt": {
+        "en": "Save",
+        "tr": "Kaydet",
+    },
+    "ui.council.prompt_saved": {
+        "en": "Prompt saved",
+        "tr": "Prompt kaydedildi",
+    },
+    "ui.council.prompt_save_failed": {
+        "en": "Couldn't save prompt",
+        "tr": "Prompt kaydedilemedi",
+    },
+    "ui.council.reset_prompt": {
+        "en": "Reset to default",
+        "tr": "Varsayılana dön",
+    },
+    "ui.council.reset_confirm": {
+        "en": "Reset to the default prompt?",
+        "tr": "Varsayılan prompta dönülsün mü?",
+    },
+    "ui.council.reset_failed": {
+        "en": "Reset failed",
+        "tr": "Sıfırlama başarısız",
+    },
+    "ui.council.prompt_conflict": {
+        "en": "Prompt was changed elsewhere — reload before saving again.",
+        "tr": "Prompt başka bir yerden değiştirildi — tekrar kaydetmeden önce yeniden yükleyin.",
+    },
+    "ui.council.reload_prompt": {
+        "en": "Reload",
+        "tr": "Yeniden yükle",
+    },
+    "ui.council.layer_preview_heading": {
+        "en": "Active layers",
+        "tr": "Etkin katmanlar",
+    },
+    "ui.council.layer_preview_hint": {
+        "en": "See which prompt layers apply for a given project directory",
+        "tr": "Belirli bir proje dizini için hangi prompt katmanlarının uygulandığını gör",
+    },
+    "ui.council.show_layers": {
+        "en": "Show layers",
+        "tr": "Katmanları göster",
+    },
+    "ui.council.layers_error": {
+        "en": "Couldn't load layers",
+        "tr": "Katmanlar yüklenemedi",
+    },
+    "ui.council.config_heading": {
+        "en": "Project configuration",
+        "tr": "Proje yapılandırması",
+    },
+    "ui.council.config_readonly_note": {
+        "en": "Read-only — edit .pm-council.yaml in the repo to change this",
+        "tr": "Salt okunur — değiştirmek için repodaki .pm-council.yaml dosyasını düzenleyin",
+    },
+    "ui.council.config_source_default": {
+        "en": "No .pm-council.yaml found — using built-in defaults",
+        "tr": ".pm-council.yaml bulunamadı — yerleşik varsayılanlar kullanılıyor",
+    },
+    "ui.council.config_source_file": {
+        "en": "loaded from",
+        "tr": "kaynak dosya",
+    },
+    "ui.council.turn_timeout": {
+        "en": "turn timeout (s)",
+        "tr": "tur zaman aşımı (sn)",
+    },
+    # UI chrome — AI council live stream + all-projects sessions view
+    "ui.council.all_projects": {
+        "en": "All projects",
+        "tr": "Tüm projeler",
+    },
+    "ui.council.this_project_only": {
+        "en": "This project only",
+        "tr": "Sadece bu proje",
+    },
+    "ui.council.live_connected": {
+        "en": "stream",
+        "tr": "akış",
+    },
+    "ui.council.live_reconnecting": {
+        "en": "Reconnecting…",
+        "tr": "Yeniden bağlanıyor…",
+    },
+    "ui.council.live_polling": {
+        "en": "Polling",
+        "tr": "Yoklama modu",
+    },
+    "ui.council.running_now": {
+        "en": "running now",
+        "tr": "çalışıyor",
+    },
+    "ui.council.project_badge": {
+        "en": "council sessions in this project",
+        "tr": "bu projedeki konsey oturumları",
+    },
+    "ui.council.sessions_all_empty": {
+        "en": "No council sessions in any project yet",
+        "tr": "Hiçbir projede henüz konsey oturumu yok",
+    },
+    # UI chrome — AI council pixel scene
+    "ui.council.scene.waiting": {
+        "en": "Waiting",
+        "tr": "Bekliyor",
+    },
+    "ui.council.scene.thinking": {
+        "en": "Thinking",
+        "tr": "Düşünüyor",
+    },
+    "ui.council.scene.speaking": {
+        "en": "Speaking",
+        "tr": "Konuşuyor",
+    },
+    "ui.council.scene.done": {
+        "en": "Done",
+        "tr": "Bitti",
+    },
+    "ui.council.scene.timeout": {
+        "en": "Timed out",
+        "tr": "Zaman aşımı",
+    },
+    "ui.council.scene.failed": {
+        "en": "Failed",
+        "tr": "Başarısız",
+    },
+    "ui.council.scene.skipped": {
+        "en": "Skipped",
+        "tr": "Atlandı",
+    },
+    "ui.council.scene.spokesperson": {
+        "en": "Spokesperson",
+        "tr": "Sözcü",
+    },
+    "ui.council.scene.round_progress": {
+        "en": "Round",
+        "tr": "Tur",
+    },
+    "ui.council.scene.synthesis": {
+        "en": "Synthesis",
+        "tr": "Sentez",
+    },
+    "ui.council.scene.last_word": {
+        "en": "Last word",
+        "tr": "Son söz",
+    },
+    "ui.council.scene.no_active_session": {
+        "en": "No active session to show",
+        "tr": "Gösterilecek etkin oturum yok",
+    },
     # UI chrome — list view
     "ui.list.heading.decisions": {
         "en": "Decisions",
@@ -368,6 +781,313 @@ MESSAGES: dict[str, dict[str, str]] = {
     "ui.detail.edit": {
         "en": "Edit",
         "tr": "Düzenle",
+    },
+    # UI chrome — graph view
+    "ui.graph.eyebrow": {
+        "en": "Cross-project knowledge graph",
+        "tr": "Projeler arası bilgi grafiği",
+    },
+    "ui.graph.heading": {
+        "en": "Graph",
+        "tr": "Graf",
+    },
+    "ui.graph.unexpected_links": {
+        "en": "Unexpected links",
+        "tr": "Beklenmedik bağlantılar",
+    },
+    "ui.graph.reset": {
+        "en": "Reset",
+        "tr": "Sıfırla",
+    },
+    "ui.graph.table_toggle_show": {
+        "en": "Table view",
+        "tr": "Tablo görünümü",
+    },
+    "ui.graph.table_toggle_hide": {
+        "en": "Graph view",
+        "tr": "Graf görünümü",
+    },
+    "ui.graph.search_label": {
+        "en": "Search graph nodes by id, title or project",
+        "tr": "Graf düğümlerini kimlik, başlık veya projeye göre ara",
+    },
+    "ui.graph.search_placeholder": {
+        "en": "Search nodes…",
+        "tr": "Düğüm ara…",
+    },
+    "ui.graph.match_one": {
+        "en": "match",
+        "tr": "eşleşme",
+    },
+    "ui.graph.match_many": {
+        "en": "matches",
+        "tr": "eşleşme",
+    },
+    "ui.graph.chip_decision": {
+        "en": "Decision",
+        "tr": "Karar",
+    },
+    "ui.graph.chip_lesson": {
+        "en": "Lesson",
+        "tr": "Ders",
+    },
+    "ui.graph.chip_accepted": {
+        "en": "Accepted",
+        "tr": "Kabul edildi",
+    },
+    "ui.graph.chip_proposed": {
+        "en": "Proposed",
+        "tr": "Önerildi",
+    },
+    "ui.graph.chip_other": {
+        "en": "Other",
+        "tr": "Diğer",
+    },
+    "ui.graph.all_projects": {
+        "en": "All projects",
+        "tr": "Tüm projeler",
+    },
+    "ui.graph.project_filter_label": {
+        "en": "Filter by project",
+        "tr": "Projeye göre filtrele",
+    },
+    "ui.graph.active_filters": {
+        "en": "active",
+        "tr": "aktif",
+    },
+    "ui.graph.clear": {
+        "en": "Clear",
+        "tr": "Temizle",
+    },
+    "ui.graph.settling": {
+        "en": "Settling layout…",
+        "tr": "Yerleşim oturuyor…",
+    },
+    "ui.graph.stat_visible_nodes": {
+        "en": "visible nodes",
+        "tr": "görünür düğüm",
+    },
+    "ui.graph.stat_edges": {
+        "en": "edges",
+        "tr": "kenar",
+    },
+    "ui.graph.stat_clusters": {
+        "en": "clusters",
+        "tr": "küme",
+    },
+    "ui.graph.stat_isolated": {
+        "en": "isolated",
+        "tr": "izole",
+    },
+    "ui.graph.canvas_hint": {
+        "en": (
+            "sample of the {count}-node graph · scroll to zoom, drag to pan · "
+            "click to select · double-click or the panel button to open the record"
+        ),
+        "tr": (
+            "{count} düğümlük grafiğin örneklemi · yakınlaştırmak için kaydır, kaydırmak için sürükle · "
+            "tıkla: seç · çift tıkla veya panelden kayda git"
+        ),
+    },
+    "ui.graph.legend_small_cluster": {
+        "en": "small cluster",
+        "tr": "küçük küme",
+    },
+    "ui.graph.tooltip_decision": {
+        "en": "decision",
+        "tr": "karar",
+    },
+    "ui.graph.tooltip_lesson": {
+        "en": "lesson",
+        "tr": "ders",
+    },
+    "ui.graph.legend_heading": {
+        "en": "Legend",
+        "tr": "Gösterge",
+    },
+    "ui.graph.legend_type_heading": {
+        "en": "Type",
+        "tr": "Tür",
+    },
+    "ui.graph.legend_decision": {
+        "en": "Decision",
+        "tr": "Karar",
+    },
+    "ui.graph.legend_decision_shape": {
+        "en": "circle",
+        "tr": "daire",
+    },
+    "ui.graph.legend_lesson": {
+        "en": "Lesson",
+        "tr": "Ders",
+    },
+    "ui.graph.legend_lesson_shape": {
+        "en": "diamond",
+        "tr": "elmas",
+    },
+    "ui.graph.legend_status_heading": {
+        "en": "Status",
+        "tr": "Durum",
+    },
+    "ui.graph.status_accepted": {
+        "en": "Accepted",
+        "tr": "Kabul edildi",
+    },
+    "ui.graph.status_accepted_style": {
+        "en": "solid ring",
+        "tr": "düz halka",
+    },
+    "ui.graph.status_proposed": {
+        "en": "Proposed",
+        "tr": "Önerildi",
+    },
+    "ui.graph.status_proposed_style": {
+        "en": "dashed ring",
+        "tr": "kesikli halka",
+    },
+    "ui.graph.status_reverted": {
+        "en": "Reverted",
+        "tr": "Geri alındı",
+    },
+    "ui.graph.status_reverted_style": {
+        "en": "thick ring",
+        "tr": "kalın halka",
+    },
+    "ui.graph.status_superseded": {
+        "en": "Superseded",
+        "tr": "Değiştirildi",
+    },
+    "ui.graph.status_superseded_style": {
+        "en": "dashed muted ring",
+        "tr": "kesikli soluk halka",
+    },
+    "ui.graph.legend_edge_heading": {
+        "en": "Edge type",
+        "tr": "Kenar türü",
+    },
+    "ui.graph.edge_conceptually_related_to": {
+        "en": "Conceptually related",
+        "tr": "Kavramsal olarak ilişkili",
+    },
+    "ui.graph.edge_semantically_similar_to": {
+        "en": "Semantically similar",
+        "tr": "Anlamsal olarak benzer",
+    },
+    "ui.graph.edge_rationale_for": {
+        "en": "Rationale for",
+        "tr": "Gerekçe",
+    },
+    "ui.graph.edge_shares_data_with": {
+        "en": "Shares data with",
+        "tr": "Veri paylaşıyor",
+    },
+    "ui.graph.legend_unexpected": {
+        "en": "Unexpected link",
+        "tr": "Beklenmedik bağlantı",
+    },
+    "ui.graph.legend_unexpected_style": {
+        "en": "glow + flow",
+        "tr": "parıltı + akış",
+    },
+    "ui.graph.selected_heading": {
+        "en": "Selected",
+        "tr": "Seçili",
+    },
+    "ui.graph.clear_selection": {
+        "en": "Clear selection",
+        "tr": "Seçimi temizle",
+    },
+    "ui.graph.record_not_found": {
+        "en": "Record not found",
+        "tr": "Kayıt bulunamadı",
+    },
+    "ui.graph.date": {
+        "en": "Date",
+        "tr": "Tarih",
+    },
+    "ui.graph.importance": {
+        "en": "Importance",
+        "tr": "Önem",
+    },
+    "ui.graph.go_to_record": {
+        "en": "Go to record",
+        "tr": "Kayda git",
+    },
+    "ui.graph.neighbors": {
+        "en": "Neighbors",
+        "tr": "Komşular",
+    },
+    "ui.graph.no_neighbors": {
+        "en": "No neighbors",
+        "tr": "Komşu yok",
+    },
+    "ui.graph.clusters_heading": {
+        "en": "Clusters",
+        "tr": "Kümeler",
+    },
+    "ui.graph.show_less": {
+        "en": "Show less",
+        "tr": "Daha az göster",
+    },
+    "ui.graph.show_more": {
+        "en": "More",
+        "tr": "Daha fazla",
+    },
+    "ui.graph.unexpected_heading": {
+        "en": "Unexpected connections",
+        "tr": "Beklenmedik bağlantılar",
+    },
+    "ui.graph.table_caption": {
+        "en": "Accessible list of graph nodes",
+        "tr": "Graf düğümlerinin erişilebilir listesi",
+    },
+    "ui.graph.table_col_id": {
+        "en": "ID",
+        "tr": "Kimlik",
+    },
+    "ui.graph.table_col_title": {
+        "en": "Title",
+        "tr": "Başlık",
+    },
+    "ui.graph.table_col_type": {
+        "en": "Type",
+        "tr": "Tür",
+    },
+    "ui.graph.table_col_status": {
+        "en": "Status",
+        "tr": "Durum",
+    },
+    "ui.graph.table_col_project": {
+        "en": "Project",
+        "tr": "Proje",
+    },
+    "ui.graph.table_col_degree": {
+        "en": "Degree",
+        "tr": "Derece",
+    },
+    "ui.graph.table_empty": {
+        "en": "No nodes match the current filters",
+        "tr": "Geçerli filtrelere uyan düğüm yok",
+    },
+    # UI chrome — agent rules & memory view
+    "ui.nav.agents": {
+        "en": "Agent rules & memory",
+        "tr": "Ajan kuralları & hafızası",
+    },
+    "ui.agents.heading": {
+        "en": "Agent rules & memory",
+        "tr": "Ajan kuralları & hafızası",
+    },
+    "ui.agents.edit": {"en": "Edit", "tr": "Düzenle"},
+    "ui.agents.save": {"en": "Save", "tr": "Kaydet"},
+    "ui.agents.saved": {"en": "Saved", "tr": "Kaydedildi"},
+    "ui.agents.unsaved_warning": {
+        "en": "You have unsaved changes. Discard them?",
+        "tr": "Kaydedilmemiş değişiklikler var. Gözden çıkarılsın mı?",
+    },
+    "ui.agents.empty": {
+        "en": "Select a file from the left.",
+        "tr": "Soldan bir dosya seç.",
     },
 }
 

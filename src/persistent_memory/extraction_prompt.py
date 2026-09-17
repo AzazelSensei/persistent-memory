@@ -10,18 +10,29 @@ from pathlib import Path
 
 CLAUDE_BIN = "claude"
 CODEX_BIN = "codex"
+CODEX_BIN_ENV = "PM_CODEX_BIN"
+CODEX_APP_BIN = Path("/Applications/Codex.app/Contents/Resources/codex")
 KIMI_BIN = "kimi"
+GROK_BIN = "grok"
+GROK_BIN_ENV = "PM_GROK_BIN"
+GROK_USER_BIN = Path.home() / ".local" / "bin" / "grok"
+GROK_HOME_BIN = Path.home() / ".grok" / "bin" / "grok"
 EXTRACTION_MODEL = "claude-sonnet-4-6"
-# Codex model: empty string means "use codex config default" (no -m flag).
-# Smoke-tested 2026-06-11: gpt-5.1-codex-mini and gpt-5.1-codex are not
-# supported with a ChatGPT account; only the config default (gpt-5.5) works.
-# Override via PM_CODEX_EXTRACTION_MODEL env var.
-CODEX_EXTRACTION_MODEL = ""
+# Override via PM_CODEX_EXTRACTION_MODEL / PM_CODEX_EXTRACTION_REASONING_EFFORT.
+CODEX_EXTRACTION_MODEL = "gpt-5.5"
 CODEX_EXTRACTION_MODEL_ENV = "PM_CODEX_EXTRACTION_MODEL"
+CODEX_EXTRACTION_REASONING_EFFORT = "xhigh"
+CODEX_EXTRACTION_REASONING_EFFORT_ENV = "PM_CODEX_EXTRACTION_REASONING_EFFORT"
 # Kimi model: empty string means "use kimi config default" (no -m flag).
 # Override via PM_KIMI_EXTRACTION_MODEL env var.
 KIMI_EXTRACTION_MODEL = ""
 KIMI_EXTRACTION_MODEL_ENV = "PM_KIMI_EXTRACTION_MODEL"
+# Grok extraction: empty model = CLI default. Mechanical task → low effort.
+# Override via PM_GROK_EXTRACTION_MODEL / PM_GROK_EXTRACTION_EFFORT.
+GROK_EXTRACTION_MODEL = ""
+GROK_EXTRACTION_MODEL_ENV = "PM_GROK_EXTRACTION_MODEL"
+GROK_EXTRACTION_EFFORT = "low"
+GROK_EXTRACTION_EFFORT_ENV = "PM_GROK_EXTRACTION_EFFORT"
 EXTRACTION_EFFORT = "low"
 OUTPUT_FORMAT = "json"
 PERMISSION_MODE = "bypassPermissions"
@@ -117,13 +128,20 @@ def build_extraction_argv(prompt: str, cwd: str) -> list[str]:
 
 
 def build_codex_extraction_argv(prompt: str, records_dir: Path) -> list[str]:
+    import json
     import os
 
     records_repo_root = str(Path(records_dir).parent)
     model = os.environ.get(CODEX_EXTRACTION_MODEL_ENV) or CODEX_EXTRACTION_MODEL
+    effort = (
+        os.environ.get(CODEX_EXTRACTION_REASONING_EFFORT_ENV)
+        or CODEX_EXTRACTION_REASONING_EFFORT
+    )
     argv = [CODEX_BIN, "exec", "--ephemeral", "--skip-git-repo-check", "-C", records_repo_root, "-s", "workspace-write"]
     if model:
         argv.extend(["-m", model])
+    if effort:
+        argv.extend(["-c", f"model_reasoning_effort={json.dumps(effort)}"])
     argv.append(prompt)
     return argv
 
@@ -135,4 +153,33 @@ def build_kimi_extraction_argv(prompt: str, cwd: str) -> list[str]:
     argv = [KIMI_BIN, "-p", prompt, "-y", "--output-format", "text"]
     if model:
         argv.extend(["-m", model])
+    return argv
+
+
+def build_grok_extraction_argv(prompt: str, cwd: str) -> list[str]:
+    """Headless Grok argv for extraction (same host as the transcript source).
+
+    Uses ``--always-approve`` (yolo) so file writes under records_dir are not
+    blocked. ``cwd`` should be the records repo root so decisions/lessons paths
+    resolve cleanly.
+    """
+    import os
+
+    model = os.environ.get(GROK_EXTRACTION_MODEL_ENV) or GROK_EXTRACTION_MODEL
+    effort = os.environ.get(GROK_EXTRACTION_EFFORT_ENV) or GROK_EXTRACTION_EFFORT
+    argv = [
+        GROK_BIN,
+        "-p",
+        prompt,
+        "--always-approve",
+        "--output-format",
+        "plain",
+        "--no-subagents",
+    ]
+    if effort:
+        argv.extend(["--effort", effort])
+    if model:
+        argv.extend(["-m", model])
+    if cwd:
+        argv.extend(["--cwd", cwd])
     return argv

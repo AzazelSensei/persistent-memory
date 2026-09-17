@@ -13,8 +13,8 @@ def _client(tmp_path):
 def test_prompt_recall_returns_block(tmp_path, monkeypatch):
     captured = {}
 
-    def fake_run_prompt_recall(query, *, records_dir, project, budget):
-        captured.update(query=query, project=project, budget=budget)
+    def fake_run_prompt_recall(query, *, records_dir, project, budget, top_k, minimum_relevance):
+        captured.update(query=query, project=project, budget=budget, top_k=top_k)
         return "📌 Relevant past memory:\n- [D-0007] batch fetch (alpha): single JOIN"
 
     monkeypatch.setattr(services, "run_prompt_recall", fake_run_prompt_recall)
@@ -33,7 +33,7 @@ def test_prompt_recall_requires_query(tmp_path):
 
 def test_prompt_recall_no_token_required(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        services, "run_prompt_recall", lambda q, *, records_dir, project, budget: ""
+        services, "run_prompt_recall", lambda q, *, records_dir, project, budget, top_k, minimum_relevance: ""
     )
     resp = _client(tmp_path).get("/api/prompt-recall", params={"q": "x", "project": "p"})
     assert resp.status_code == 200
@@ -42,7 +42,7 @@ def test_prompt_recall_no_token_required(tmp_path, monkeypatch):
 def test_prompt_recall_passes_custom_budget(tmp_path, monkeypatch):
     captured = {}
 
-    def fake(query, *, records_dir, project, budget):
+    def fake(query, *, records_dir, project, budget, top_k, minimum_relevance):
         captured["budget"] = budget
         return ""
 
@@ -53,9 +53,23 @@ def test_prompt_recall_passes_custom_budget(tmp_path, monkeypatch):
     assert captured["budget"] == 300
 
 
+def test_prompt_recall_passes_custom_top_k(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake(query, *, records_dir, project, budget, top_k, minimum_relevance):
+        captured["top_k"] = top_k
+        return ""
+
+    monkeypatch.setattr(services, "run_prompt_recall", fake)
+    _client(tmp_path).get(
+        "/api/prompt-recall", params={"q": "x", "project": "p", "top_k": 6}
+    )
+    assert captured["top_k"] == 6
+
+
 def test_prompt_recall_empty_block_when_service_returns_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        services, "run_prompt_recall", lambda q, *, records_dir, project, budget: ""
+        services, "run_prompt_recall", lambda q, *, records_dir, project, budget, top_k, minimum_relevance: ""
     )
     body = _client(tmp_path).get(
         "/api/prompt-recall", params={"q": "x", "project": "p"}
@@ -64,7 +78,7 @@ def test_prompt_recall_empty_block_when_service_returns_empty(tmp_path, monkeypa
 
 
 def test_prompt_recall_never_errors_when_service_raises(tmp_path, monkeypatch):
-    def boom(query, *, records_dir, project, budget):
+    def boom(query, *, records_dir, project, budget, top_k, minimum_relevance):
         raise RuntimeError("index missing")
 
     monkeypatch.setattr(services, "run_prompt_recall", boom)

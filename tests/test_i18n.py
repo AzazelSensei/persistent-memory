@@ -123,7 +123,7 @@ def test_prompt_recall_header_in_turkish(clean_lang_env):
         id="D-0001", title="batch fetch", project="alpha",
         body="## Decision\nsingle JOIN\n",
     )
-    block = _format_prompt_recall_block([SimpleNamespace(record=view)], budget=700)
+    block = _format_prompt_recall_block([SimpleNamespace(record=view, score=1.0)], budget=700)
     assert block.splitlines()[0] == TR_PROMPT_RECALL_HEADER
 
 

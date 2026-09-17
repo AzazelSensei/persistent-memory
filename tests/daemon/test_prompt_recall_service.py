@@ -1,5 +1,9 @@
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from types import SimpleNamespace
 
 import httpx
 
@@ -155,6 +159,77 @@ def test_prompt_recall_empty_query_returns_empty(tmp_path, monkeypatch):
     _patch_embedder(monkeypatch)
 
     assert services.run_prompt_recall("   ", records_dir=records_dir, project="pm-test") == ""
+
+
+def test_prompt_recall_filters_below_minimum_relevance():
+    high = SimpleNamespace(
+        score=0.8,
+        record=SimpleNamespace(id="D-0001", title="Keep", project="p", body="## Karar\nKeep this."),
+    )
+    low = SimpleNamespace(
+        score=0.4,
+        record=SimpleNamespace(id="D-0002", title="Drop", project="p", body="## Karar\nDrop this."),
+    )
+
+    block = services._format_prompt_recall_block(
+        [high, low], budget=500, minimum_relevance=0.55
+    )
+
+    assert "D-0001" in block
+    assert "D-0002" not in block
+
+
+def test_concurrent_prompt_recall_does_not_stampede_corpus_or_index(tmp_path, monkeypatch):
+    """Concurrent hook requests share one corpus scan and one index sync.
+
+    A daemon may receive several prompt hooks together. Repeating the O(N)
+    directory fingerprint and content-hash pass in every worker exhausts the
+    FastAPI thread pool on a large corpus, making even /api/health time out.
+    """
+    records_dir = tmp_path / "records"
+    _seed_records(records_dir)
+    _patch_embedder(monkeypatch)
+
+    # Isolate this test from process-global caches populated by earlier tests.
+    services._clear_runtime_caches()
+
+    fingerprint_calls = 0
+    content_hash_calls = 0
+    counter_lock = threading.Lock()
+    original_fingerprint = services._records_fingerprint
+
+    def counted_fingerprint(path):
+        nonlocal fingerprint_calls
+        with counter_lock:
+            fingerprint_calls += 1
+        # Widen the race so every worker reaches the old stampede reliably.
+        time.sleep(0.02)
+        return original_fingerprint(path)
+
+    from persistent_memory import embeddings
+
+    original_content_hash = embeddings.content_hash_for
+
+    def counted_content_hash(record):
+        nonlocal content_hash_calls
+        with counter_lock:
+            content_hash_calls += 1
+        return original_content_hash(record)
+
+    monkeypatch.setattr(services, "_records_fingerprint", counted_fingerprint)
+    monkeypatch.setattr(embeddings, "content_hash_for", counted_content_hash)
+
+    def recall(_):
+        return services.run_prompt_recall(
+            "N+1 sorgu batch fetch", records_dir=records_dir, project="pm-test"
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        blocks = list(pool.map(recall, range(8)))
+
+    assert all("[D-0001]" in block for block in blocks)
+    assert fingerprint_calls == 1
+    assert content_hash_calls == 2
 
 
 def test_gist_supports_english_canonical_headings():

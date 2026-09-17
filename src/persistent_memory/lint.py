@@ -1,9 +1,13 @@
 """Corpus linter for memory records.
 
-Runs consistency checks over a record directory: frontmatter schema,
+Runs consistency checks over a record corpus: frontmatter schema,
 duplicate ids, broken wikilinks, orphans, bidirectional supersession
 integrity, staleness, and unknown frontmatter keys. Findings at WARNING
 severity or above make the lint exit code non-zero.
+
+Point it at the corpus root (the directory holding `decisions/` and
+`lessons/`), not at a single record directory — link and supersession
+checks need both halves loaded together to resolve cross-directory ids.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from .records import TYPE_TO_DIRNAME
 from .schema import FRONTMATTER_DELIMITER, Record, RecordStatus, parse_document
 
 INDEX_FILENAME = "index.md"
@@ -314,15 +319,31 @@ def _load_schema_valid(directory: Path) -> list[LoadedRecord]:
     return loaded
 
 
+def _record_directories(directory: Path) -> list[Path]:
+    """Resolve where records actually live under `directory`.
+
+    A corpus root holds records in one subdirectory per record type; pointing
+    lint at the root must cover all of them, and as one combined set so that
+    cross-directory wikilinks and supersession links resolve. When no such
+    subdirectory exists the directory itself is treated as the record dir.
+    """
+    subdirs = [directory / name for name in TYPE_TO_DIRNAME.values()]
+    existing = [path for path in subdirs if path.is_dir()]
+    return existing or [directory]
+
+
 def run_lint(directory: Path, today: date) -> LintReport:
-    """Run every check over a record directory and aggregate the findings.
+    """Run every check over a record corpus and aggregate the findings.
 
     Files that fail schema validation are reported once by check_schema and
     excluded from the remaining checks.
     """
-    findings: list[LintFinding] = list(check_schema(directory))
-    findings.extend(check_unknown_keys(directory))
-    loaded = _load_schema_valid(directory)
+    directories = _record_directories(directory)
+    findings: list[LintFinding] = []
+    for path in directories:
+        findings.extend(check_schema(path))
+        findings.extend(check_unknown_keys(path))
+    loaded = [item for path in directories for item in _load_schema_valid(path)]
     findings.extend(check_duplicate_id(loaded))
     findings.extend(check_broken_links(loaded))
     findings.extend(check_orphans(loaded))

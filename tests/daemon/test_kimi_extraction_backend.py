@@ -57,6 +57,10 @@ class TestExtractionBackendFor:
     def test_none_returns_claude(self):
         assert services._extraction_backend_for(None) == "claude"
 
+    def test_grok_root_returns_grok(self):
+        path = Path.home() / ".grok" / "sessions" / "enc" / "sess" / "chat_history.jsonl"
+        assert services._extraction_backend_for(path) == "grok"
+
 
 class TestBuildKimiExtractionArgv:
     def test_starts_with_kimi_prompt(self):
@@ -136,7 +140,7 @@ class TestExtractEndpointKimiRouting:
         assert captured["argv"][0] == "kimi"
         assert captured["kwargs"].get("cwd") == str(cwd)
 
-    def test_missing_kimi_falls_back_to_claude(self, tmp_path, monkeypatch, caplog):
+    def test_missing_kimi_does_not_cross_host_fallback(self, tmp_path, monkeypatch, caplog):
         import logging
 
         services.reset_extraction_state()
@@ -183,6 +187,7 @@ class TestExtractEndpointKimiRouting:
                 transcript_path=kimi_transcript,
                 records_dir=tmp_path,
             )
-        assert result["status"] == services.EXTRACTION_STARTED_STATUS
-        assert captured["argv"][0] == "claude"
+        assert result["status"] == services.EXTRACTION_BACKEND_UNAVAILABLE_STATUS
+        assert result["backend"] == "kimi"
+        assert "argv" not in captured
         assert any("kimi" in rec.message.lower() for rec in caplog.records)

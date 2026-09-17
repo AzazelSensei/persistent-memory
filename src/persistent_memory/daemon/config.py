@@ -15,6 +15,7 @@ GRAPH_HTML_FILENAME = "graph.html"
 
 DECISIONS_DIRNAME = "decisions"
 LESSONS_DIRNAME = "lessons"
+COUNCIL_DIRNAME = "council"
 
 INDEX_ROOT_DIRNAME = ".pm-index"
 TRANSCRIPT_INDEX_DIRNAME = "transcripts"
@@ -43,6 +44,10 @@ class DaemonConfig:
     @property
     def lessons_dir(self) -> Path:
         return self.records_dir / LESSONS_DIRNAME
+
+    @property
+    def council_dir(self) -> Path:
+        return self.records_dir / COUNCIL_DIRNAME
 
     @property
     def graphify_out_dir(self) -> Path:
